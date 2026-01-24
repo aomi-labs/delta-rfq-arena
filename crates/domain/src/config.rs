@@ -18,8 +18,6 @@ pub struct DomainConfig {
     pub llm_provider: String,
     /// LLM API key
     pub llm_api_key: String,
-    /// Use mock compiler (for demo without LLM)
-    pub use_mock_compiler: bool,
 }
 
 impl Default for DomainConfig {
@@ -48,9 +46,6 @@ impl Default for DomainConfig {
                 .unwrap_or(3000),
             llm_provider,
             llm_api_key,
-            use_mock_compiler: env::var("USE_MOCK_COMPILER")
-                .map(|v| v == "1" || v.to_lowercase() == "true")
-                .unwrap_or(false),
         }
     }
 }

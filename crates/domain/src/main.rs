@@ -43,7 +43,7 @@ pub struct AppState {
     /// Delta runtime (optional - may not be connected)
     pub runtime: Option<Arc<RwLock<RuntimeHandle>>>,
     /// LLM compiler for quotes
-    pub compiler: Option<Compiler>,
+    pub compiler: Compiler,
     /// Configuration
     pub config: DomainConfig,
 }
@@ -65,22 +65,22 @@ async fn main() -> Result<()> {
     let config = DomainConfig::default();
     tracing::info!("Configuration loaded: shard={}, api_port={}", config.shard, config.api_port);
 
-    // Initialize compiler (if API key is set and not using mock mode)
-    let compiler = if !config.use_mock_compiler && !config.llm_api_key.is_empty() {
-        tracing::info!("Using LLM compiler ({} provider)", config.llm_provider);
-        Some(Compiler::new(CompilerConfig {
-            llm: config.llm_provider.clone(),
-            api_key: config.llm_api_key.clone(),
-            model: if config.llm_provider == "claude" {
-                "claude-sonnet-4-20250514".to_string()
-            } else {
-                "gpt-4o-mini".to_string()
-            },
-        }))
-    } else {
-        tracing::info!("Using mock compiler for demo mode");
-        None
-    };
+    // Initialize LLM compiler
+    if config.llm_api_key.is_empty() {
+        tracing::error!("No LLM API key configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY");
+        std::process::exit(1);
+    }
+    
+    tracing::info!("Using LLM compiler ({} provider)", config.llm_provider);
+    let compiler = Compiler::new(CompilerConfig {
+        llm: config.llm_provider.clone(),
+        api_key: config.llm_api_key.clone(),
+        model: if config.llm_provider == "claude" {
+            "claude-sonnet-4-20250514".to_string()
+        } else {
+            "gpt-4o-mini".to_string()
+        },
+    });
 
     // Initialize delta runtime
     let runtime = match runtime::init_runtime(&config).await {
@@ -173,18 +173,11 @@ async fn create_quote(
     // Get next nonce (simplified - in production, get from vault)
     let nonce = 1u64;
 
-    // Compile the quote
-    let (spec, constraints) = if let Some(compiler) = &state.compiler {
-        // Use LLM to compile
-        compiler
-            .compile(&request.text, quote_id_bytes, nonce)
-            .await
-            .map_err(|e| (StatusCode::BAD_REQUEST, format!("Failed to compile quote: {}", e)))?
-    } else {
-        // Mock compilation for demo
-        mock_compile(&request.text, quote_id_bytes, nonce)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?
-    };
+    // Compile the quote using LLM
+    let (spec, constraints) = state.compiler
+        .compile(&request.text, quote_id_bytes, nonce)
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("Failed to compile quote: {}", e)))?;
 
     // Create the quote
     let now = chrono::Utc::now();
@@ -346,115 +339,4 @@ async fn get_receipts(
     Json(receipts)
 }
 
-// =============================================================================
-// Mock Compilation (for demo without LLM)
-// =============================================================================
 
-fn mock_compile(
-    text: &str,
-    quote_id: [u8; 32],
-    nonce: u64,
-) -> Result<(QuoteSpec, QuoteConstraints), String> {
-    // Parse simple patterns from the text
-    let text_lower = text.to_lowercase();
-
-    // Detect buy/sell
-    let side = if text_lower.contains("buy") {
-        Side::Buy
-    } else if text_lower.contains("sell") {
-        Side::Sell
-    } else {
-        return Err("Could not determine buy/sell side".to_string());
-    };
-
-    // Extract size (look for numbers before asset names)
-    let size = extract_number(&text_lower).unwrap_or(1.0);
-
-    // Detect asset
-    let asset = if text_lower.contains("deth") || text_lower.contains("eth") {
-        "dETH"
-    } else {
-        "dETH" // Default
-    };
-
-    // Detect max price
-    let max_price = if let Some(idx) = text_lower.find("at most") {
-        extract_number(&text_lower[idx..])
-    } else if let Some(idx) = text_lower.find("max") {
-        extract_number(&text_lower[idx..])
-    } else {
-        Some(2000.0) // Default
-    };
-
-    // Detect expiry (in minutes)
-    let expiry_minutes = if let Some(idx) = text_lower.find("expire") {
-        extract_number(&text_lower[idx..]).map(|n| n as u64).unwrap_or(5)
-    } else {
-        5 // Default 5 minutes
-    };
-
-    // Detect allowed sources
-    let mut allowed_sources = vec![];
-    if text_lower.contains("feeda") {
-        allowed_sources.push("FeedA".to_string());
-    }
-    if text_lower.contains("feedb") {
-        allowed_sources.push("FeedB".to_string());
-    }
-    if allowed_sources.is_empty() {
-        allowed_sources = vec!["FeedA".to_string(), "FeedB".to_string()];
-    }
-
-    // Detect staleness
-    let max_staleness = if let Some(idx) = text_lower.find("fresh") {
-        extract_number(&text_lower[idx..]).map(|n| n as u64).unwrap_or(5)
-    } else {
-        5 // Default 5 seconds
-    };
-
-    let spec = QuoteSpec {
-        asset: asset.to_string(),
-        size,
-        side,
-        limit_price: max_price,
-        currency: "USDD".to_string(),
-    };
-
-    let now = chrono::Utc::now().timestamp() as u64;
-    let constraints = QuoteConstraints {
-        quote_id,
-        max_debit: max_price.map(|p| (p * size * 1_000_000_000.0) as u64).unwrap_or(u64::MAX),
-        min_credit: None,
-        expiry_timestamp: now + (expiry_minutes * 60),
-        allowed_sources,
-        max_staleness_secs: max_staleness,
-        quorum_count: 2,
-        quorum_tolerance_percent: 0.5,
-        allowed_takers: vec![],
-        allowed_assets: vec![asset.to_string()],
-        require_atomic_dvp: text_lower.contains("atomic") || !text_lower.contains("side"),
-        no_side_payments: text_lower.contains("no side") || !text_lower.contains("side-payment"),
-        nonce,
-        max_fill_size: (size * 1_000_000_000.0) as u64,
-    };
-
-    Ok((spec, constraints))
-}
-
-fn extract_number(text: &str) -> Option<f64> {
-    let mut num_str = String::new();
-    let mut found_digit = false;
-
-    for c in text.chars() {
-        if c.is_ascii_digit() || c == '.' || c == ',' {
-            if c != ',' {
-                num_str.push(c);
-            }
-            found_digit = true;
-        } else if found_digit {
-            break;
-        }
-    }
-
-    num_str.parse().ok()
-}

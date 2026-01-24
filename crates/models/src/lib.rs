@@ -18,11 +18,17 @@ extern crate alloc;
 mod quote;
 mod constraints;
 mod fill;
+
+#[cfg(feature = "std")]
 mod feed;
+#[cfg(feature = "std")]
 mod receipt;
 
 pub use quote::*;
 pub use constraints::*;
 pub use fill::*;
+
+#[cfg(feature = "std")]
 pub use feed::*;
+#[cfg(feature = "std")]
 pub use receipt::*;

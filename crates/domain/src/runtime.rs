@@ -15,6 +15,12 @@ use std::num::NonZero;
 
 use crate::config::DomainConfig;
 
+/// The compiled ELF binary for the RFQ local laws program
+#[cfg(feature = "testnet")]
+const LOCAL_LAWS_ELF: &[u8] = include_bytes!(
+    "../../local-laws-elf/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/rfq-local-laws-elf"
+);
+
 /// Handle to the delta runtime
 pub struct RuntimeHandle {
     /// Whether we're connected to testnet
@@ -23,7 +29,7 @@ pub struct RuntimeHandle {
     pub shard: u64,
     /// The actual runtime (only available in testnet mode)
     #[cfg(feature = "testnet")]
-    pub runtime: Option<delta_domain_sdk::Runtime>,
+    pub runtime: Option<delta_domain_sdk::Runtime<delta_domain_sdk::proving::sp1::Client>>,
 }
 
 impl RuntimeHandle {
@@ -56,6 +62,8 @@ pub async fn init_runtime(config: &DomainConfig) -> Result<Arc<RwLock<RuntimeHan
     // Testnet mode
     #[cfg(feature = "testnet")]
     {
+        use delta_domain_sdk::proving::sp1::Client as SP1Client;
+        
         tracing::info!("Connecting to delta testnet...");
         
         // Load keypair
@@ -68,13 +76,15 @@ pub async fn init_runtime(config: &DomainConfig) -> Result<Arc<RwLock<RuntimeHan
         let shard = NonZero::new(config.shard)
             .context("Invalid shard ID (cannot be 0)")?;
 
+        // Create SP1 proving client with CPU prover for both global and local laws
+        tracing::info!("Initializing SP1 proving client ({} bytes ELF)", LOCAL_LAWS_ELF.len());
+        let proving_client = SP1Client::global_laws_cpu()
+            .with_local_laws_cpu(LOCAL_LAWS_ELF);
+
         // Build runtime
-        // Note: The ELF binary would be included here when available
-        // let elf_bytes = include_bytes!("../../local-laws-elf/target/elf/...");
-        
         let runtime = delta_domain_sdk::Runtime::builder(shard, keypair)
             .with_rpc(&config.rpc_url)
-            // .with_proving_client(...)  // Add when ELF is built
+            .with_proving_client(proving_client)
             .build()
             .await
             .context("Failed to build runtime")?;
