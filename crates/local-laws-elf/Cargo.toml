@@ -1,0 +1,19 @@
+[package]
+name = "rfq-local-laws-elf"
+version = "0.1.0"
+edition = "2021"
+
+# This crate is built independently with `cargo prove build`
+# and should not be part of the main workspace
+[workspace]
+
+[dependencies]
+# Local laws implementation (our own crate)
+rfq-local-laws = { path = "../local-laws", default-features = false }
+rfq-models = { path = "../models", default-features = false }
+
+# SP1 zkVM for provable execution - pinned to match toolchain
+sp1-zkvm = "=4.0.0"
+
+# Serialization - pinned for SP1 compatibility (rustc 1.82)
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }

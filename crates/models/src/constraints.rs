@@ -2,6 +2,9 @@
 //!
 //! These constraints are enforced by Local Laws during settlement.
 
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -87,12 +90,12 @@ impl QuoteConstraints {
 
     /// Check if the constraints allow a specific taker
     pub fn allows_taker(&self, taker_owner_id: &str) -> bool {
-        self.allowed_takers.is_empty() || self.allowed_takers.contains(&taker_owner_id.to_string())
+        self.allowed_takers.is_empty() || self.allowed_takers.iter().any(|t| t == taker_owner_id)
     }
 
     /// Check if the constraints allow a specific source
     pub fn allows_source(&self, source: &str) -> bool {
-        self.allowed_sources.is_empty() || self.allowed_sources.contains(&source.to_string())
+        self.allowed_sources.is_empty() || self.allowed_sources.iter().any(|s| s == source)
     }
 }
 

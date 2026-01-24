@@ -1,14 +1,26 @@
 //! Fill attempt models
 
-use crate::{FeedEvidence, QuoteId};
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::FeedEvidence;
+
+// UUID-dependent types only available with std feature
+#[cfg(feature = "std")]
 use uuid::Uuid;
 
+#[cfg(feature = "std")]
+use crate::QuoteId;
+
 /// Unique identifier for a fill attempt
+#[cfg(feature = "std")]
 pub type FillId = Uuid;
 
 /// A fill attempt by a taker
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FillAttempt {
     /// Unique identifier for this fill attempt
@@ -30,6 +42,7 @@ pub struct FillAttempt {
 }
 
 /// The result of a fill attempt
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum FillResult {
@@ -52,6 +65,7 @@ pub enum FillResult {
 }
 
 /// Details of a successful settlement
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettlementDetails {
     /// Amount debited from maker
@@ -71,6 +85,9 @@ pub struct SettlementDetails {
 }
 
 /// Reason for rejecting a fill
+///
+/// This type is available in both std and no_std environments
+/// as it's needed for validation in the zkVM.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "snake_case")]
 pub enum RejectionReason {
@@ -230,6 +247,7 @@ impl RejectionReason {
 }
 
 /// Request to attempt a fill
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FillRequest {
     /// The taker's owner ID

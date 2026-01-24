@@ -23,7 +23,7 @@ delta_serializers = { version = "=0.5.21", registry = "delta" }
 delta_verifiable = { version = "=0.5.21", registry = "delta" }
 
 # Internal crates
-rfq-models = { path = "crates/models" }
+rfq-models = { path = "crates/models", default-features = false }
 rfq-local-laws = { path = "crates/local-laws" }
 rfq-compiler = { path = "crates/compiler" }
 rfq-feeds = { path = "crates/feeds" }
@@ -36,7 +36,7 @@ axum = "0.7"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = "1"
 
 # Error handling
@@ -51,7 +51,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.12", features = ["json"] }
 
 # Time
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["serde", "alloc", "clock", "std"] }
 
 # UUID for quote IDs
 uuid = { version = "1", features = ["v4", "serde"] }

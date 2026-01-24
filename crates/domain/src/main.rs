@@ -3,10 +3,15 @@
 //! Main entry point for the OTC RFQ Arena domain.
 //! 
 //! This server:
-//! - Connects to delta testnet via the Runtime
+//! - Connects to delta testnet via the Runtime (when testnet feature enabled)
 //! - Exposes HTTP endpoints for posting quotes and filling them
 //! - Uses LLM to compile English quotes into guardrails
 //! - Validates fills against local laws
+//!
+//! ## Features
+//!
+//! - `mock` (default): Use mock runtime, no testnet connection
+//! - `testnet`: Connect to delta testnet with real ZK proofs
 
 use anyhow::Result;
 use axum::{
@@ -15,21 +20,20 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use delta_base_sdk::crypto::ed25519;
-use delta_domain_sdk::Runtime;
 use rfq_compiler::{Compiler, CompilerConfig};
-use rfq_local_laws::RfqLocalLaws;
 use rfq_models::*;
-use std::{num::NonZero, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 mod config;
+mod runtime;
 mod state;
 
 use config::DomainConfig;
+use runtime::RuntimeHandle;
 use state::DomainState;
 
 /// Application state shared across handlers
@@ -42,12 +46,6 @@ pub struct AppState {
     pub compiler: Option<Compiler>,
     /// Configuration
     pub config: DomainConfig,
-}
-
-/// Handle to the delta runtime
-pub struct RuntimeHandle {
-    // We'll add the actual runtime here when connected
-    pub connected: bool,
 }
 
 #[tokio::main]
@@ -84,10 +82,22 @@ async fn main() -> Result<()> {
         None
     };
 
+    // Initialize delta runtime
+    let runtime = match runtime::init_runtime(&config).await {
+        Ok(rt) => {
+            tracing::info!("Runtime initialized successfully");
+            Some(rt)
+        }
+        Err(e) => {
+            tracing::warn!("Failed to initialize runtime: {}. Running in offline mode.", e);
+            None
+        }
+    };
+
     // Create application state
     let state = Arc::new(AppState {
         domain: DomainState::new(),
-        runtime: None, // Will connect when testnet is ready
+        runtime,
         compiler,
         config: config.clone(),
     });

@@ -5,6 +5,15 @@
 //! - Guardrails (constraints) compiled from English
 //! - Fill attempts and results
 //! - Price feed data
+//!
+//! ## Features
+//!
+//! - `std` (default): Standard library support with full functionality
+//! - Without `std`: Minimal build for zkVM environments
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 
 mod quote;
 mod constraints;

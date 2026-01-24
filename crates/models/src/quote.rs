@@ -1,11 +1,19 @@
 //! Quote models for the RFQ system
 
-use crate::QuoteConstraints;
+#![allow(unused_imports)]
+
+use alloc::string::String;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "std")]
 use uuid::Uuid;
 
-/// Unique identifier for a quote
+#[cfg(feature = "std")]
+use crate::QuoteConstraints;
+
+/// Unique identifier for a quote (only available with std)
+#[cfg(feature = "std")]
 pub type QuoteId = Uuid;
 
 /// The side of a trade
@@ -31,6 +39,7 @@ pub enum QuoteStatus {
 }
 
 /// The specification of a quote (what the maker wants to trade)
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuoteSpec {
     /// The asset being traded (e.g., "dETH")
@@ -46,6 +55,7 @@ pub struct QuoteSpec {
 }
 
 /// A complete quote posted by a maker
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Quote {
     /// Unique identifier
@@ -68,6 +78,7 @@ pub struct Quote {
     pub original_text: String,
 }
 
+#[cfg(feature = "std")]
 impl Quote {
     /// Check if the quote is still valid (not expired, not filled, not cancelled)
     pub fn is_active(&self) -> bool {
@@ -81,6 +92,7 @@ impl Quote {
 }
 
 /// Request to create a new quote
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateQuoteRequest {
     /// The English text describing the quote
@@ -92,6 +104,7 @@ pub struct CreateQuoteRequest {
 }
 
 /// Response after creating a quote
+#[cfg(feature = "std")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateQuoteResponse {
     /// The created quote

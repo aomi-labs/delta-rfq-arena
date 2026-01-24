@@ -3,10 +3,16 @@ name = "rfq-models"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["std"]
+std = ["serde/std", "chrono/std", "dep:serde_json", "dep:uuid", "dep:thiserror", "dep:delta_base_sdk"]
+
 [dependencies]
-delta_base_sdk = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-chrono = { workspace = true }
-uuid = { workspace = true }
-thiserror = { workspace = true }
+serde = { workspace = true, default-features = false, features = ["derive", "alloc"] }
+chrono = { workspace = true, default-features = false, features = ["serde", "alloc"] }
+
+# Optional std dependencies
+serde_json = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+delta_base_sdk = { workspace = true, optional = true }

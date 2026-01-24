@@ -3,6 +3,10 @@
 //! Receipts provide a verifiable record of what happened
 //! during a fill attempt, including the constraints that
 //! were in force and the outcome.
+//!
+//! These are only used in the domain server, not in zkVM validation.
+
+#![cfg(feature = "std")]
 
 use crate::{FillAttempt, FillResult, Quote, QuoteConstraints, RejectionReason};
 use chrono::{DateTime, Utc};

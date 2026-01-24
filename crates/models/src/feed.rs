@@ -1,4 +1,8 @@
 //! Price feed models
+//!
+//! These are only used in the domain server, not in zkVM validation.
+
+#![cfg(feature = "std")]
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

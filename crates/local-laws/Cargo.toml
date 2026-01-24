@@ -3,12 +3,27 @@ name = "rfq-local-laws"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["std", "delta-sdk"]
+std = ["serde/std", "rfq-models/std"]
+delta-sdk = [
+    "dep:delta_local_laws",
+    "dep:delta_base_sdk",
+    "dep:delta_serializers",
+    "dep:delta_verifiable",
+    "dep:thiserror",
+]
+# For zkVM - minimal dependencies
+zkvm = []
+
 [dependencies]
-rfq-models = { workspace = true }
-delta_local_laws = { workspace = true }
-delta_base_sdk = { workspace = true }
-delta_serializers = { workspace = true }
-delta_verifiable = { version = "=0.5.21", registry = "delta" }
-serde = { workspace = true }
-thiserror = { workspace = true }
-chrono = { workspace = true }
+rfq-models = { workspace = true, default-features = false }
+serde = { workspace = true, default-features = false, features = ["derive", "alloc"] }
+chrono = { workspace = true, default-features = false, features = ["serde"] }
+
+# Optional delta SDK dependencies (not available in zkVM)
+delta_local_laws = { workspace = true, optional = true }
+delta_base_sdk = { workspace = true, optional = true }
+delta_serializers = { workspace = true, optional = true }
+delta_verifiable = { version = "=0.5.21", registry = "delta", optional = true }
+thiserror = { workspace = true, optional = true }

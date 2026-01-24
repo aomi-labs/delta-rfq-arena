@@ -3,9 +3,25 @@
 //! This crate implements the guardrails that are enforced at settlement time.
 //! These rules are compiled from the maker's English quote and validated
 //! during proof generation.
+//!
+//! ## Features
+//!
+//! - `std` (default): Standard library support
+//! - `delta-sdk` (default): Full integration with delta SDK types
+//! - `zkvm`: Minimal build for SP1 zkVM proving
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
+
+#[cfg(feature = "delta-sdk")]
 use delta_local_laws::{LocalLaws, LocalLawsError};
+#[cfg(feature = "delta-sdk")]
 use delta_verifiable::types::{VerifiableWithDiffs, VerificationContext};
+
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use rfq_models::{FeedEvidence, QuoteConstraints, RejectionReason};
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +55,8 @@ pub struct RfqLocalLawsInput {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RfqLocalLaws;
 
+// Delta SDK integration - only compiled when delta-sdk feature is enabled
+#[cfg(feature = "delta-sdk")]
 impl LocalLaws for RfqLocalLaws {
     type Input<'a> = RfqLocalLawsInput;
 
@@ -47,128 +65,19 @@ impl LocalLaws for RfqLocalLaws {
         _verification_context: &VerificationContext,
         input: &RfqLocalLawsInput,
     ) -> Result<(), LocalLawsError> {
-        let constraints = &input.constraints;
-
-        // 1. Check expiry
-        if input.current_timestamp > constraints.expiry_timestamp {
-            return Err(LocalLawsError::new(format!(
-                "Quote expired at timestamp {}, current is {}",
-                constraints.expiry_timestamp, input.current_timestamp
-            )));
-        }
-
-        // 2. Check taker allowlist
-        if !constraints.allowed_takers.is_empty()
-            && !constraints.allowed_takers.contains(&input.taker_owner_id)
-        {
-            return Err(LocalLawsError::new(format!(
-                "Taker '{}' not in allowlist. Allowed: {:?}",
-                input.taker_owner_id, constraints.allowed_takers
-            )));
-        }
-
-        // 3. Check fill size
-        if input.fill_size > constraints.max_fill_size {
-            return Err(LocalLawsError::new(format!(
-                "Fill size {} exceeds max {}",
-                input.fill_size, constraints.max_fill_size
-            )));
-        }
-
-        // 4. Check max debit
-        if input.fill_price > constraints.max_debit {
-            return Err(LocalLawsError::new(format!(
-                "Fill price {} exceeds max debit {}",
-                input.fill_price, constraints.max_debit
-            )));
-        }
-
-        // 5. Validate feed evidence
-        validate_feed_evidence(input)?;
-
-        // 6. Check transfer pattern (atomic DvP)
-        if constraints.require_atomic_dvp {
-            // Expect exactly 2 transfer legs (asset one way, currency the other)
-            if input.transfer_leg_count != 2 {
-                return Err(LocalLawsError::new(format!(
-                    "Atomic DvP required: expected 2 transfer legs, got {}",
-                    input.transfer_leg_count
-                )));
-            }
-        }
-
-        // 7. Check for side-payments
-        if constraints.no_side_payments && input.has_extra_transfers {
-            return Err(LocalLawsError::new(
-                "Side-payments detected: extra transfers not allowed".to_string()
-            ));
-        }
-
-        Ok(())
+        validate_fill_internal(input).map_err(|e| LocalLawsError::new(e.message()))
     }
-}
-
-/// Validate feed evidence against constraints
-fn validate_feed_evidence(input: &RfqLocalLawsInput) -> Result<(), LocalLawsError> {
-    let constraints = &input.constraints;
-
-    // Check quorum count
-    if input.feed_evidence.len() < constraints.quorum_count as usize {
-        return Err(LocalLawsError::new(format!(
-            "Quorum not met: {} sources provided, {} required",
-            input.feed_evidence.len(),
-            constraints.quorum_count
-        )));
-    }
-
-    let mut valid_prices: Vec<f64> = Vec::new();
-
-    for evidence in &input.feed_evidence {
-        // Check source allowlist
-        if !constraints.allowed_sources.is_empty()
-            && !constraints.allowed_sources.contains(&evidence.source)
-        {
-            return Err(LocalLawsError::new(format!(
-                "Source '{}' not in allowlist. Allowed: {:?}",
-                evidence.source, constraints.allowed_sources
-            )));
-        }
-
-        // Check freshness
-        let age = input.current_timestamp.saturating_sub(evidence.timestamp);
-        if age > constraints.max_staleness_secs {
-            return Err(LocalLawsError::new(format!(
-                "Feed data from '{}' is stale: {}s old, max allowed is {}s",
-                evidence.source, age, constraints.max_staleness_secs
-            )));
-        }
-
-        valid_prices.push(evidence.price);
-    }
-
-    // Check price quorum (all prices within tolerance)
-    if valid_prices.len() >= 2 {
-        let min_price = valid_prices.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max_price = valid_prices.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-
-        if min_price > 0.0 {
-            let spread_percent = ((max_price - min_price) / min_price) * 100.0;
-            if spread_percent > constraints.quorum_tolerance_percent {
-                return Err(LocalLawsError::new(format!(
-                    "Price spread {:.2}% exceeds tolerance {:.2}%",
-                    spread_percent, constraints.quorum_tolerance_percent
-                )));
-            }
-        }
-    }
-
-    Ok(())
 }
 
 /// Validate a fill attempt and return a detailed rejection reason if invalid
 ///
-/// This is a helper for the domain to check fills before attempting settlement
+/// This is the core validation logic that works in both std and zkVM environments.
 pub fn validate_fill(input: &RfqLocalLawsInput) -> Result<(), RejectionReason> {
+    validate_fill_internal(input)
+}
+
+/// Internal validation logic
+fn validate_fill_internal(input: &RfqLocalLawsInput) -> Result<(), RejectionReason> {
     let constraints = &input.constraints;
 
     // 1. Check expiry
@@ -211,7 +120,7 @@ pub fn validate_fill(input: &RfqLocalLawsInput) -> Result<(), RejectionReason> {
     // 6. Check transfer pattern
     if constraints.require_atomic_dvp && input.transfer_leg_count != 2 {
         return Err(RejectionReason::InvalidTransferPattern {
-            expected: "2 legs (atomic DvP)".to_string(),
+            expected: String::from("2 legs (atomic DvP)"),
             actual: format!("{} legs", input.transfer_leg_count),
         });
     }
@@ -219,7 +128,7 @@ pub fn validate_fill(input: &RfqLocalLawsInput) -> Result<(), RejectionReason> {
     // 7. Check for side-payments
     if constraints.no_side_payments && input.has_extra_transfers {
         return Err(RejectionReason::SidePaymentDetected {
-            description: "Extra transfers detected outside expected pattern".to_string(),
+            description: String::from("Extra transfers detected outside expected pattern"),
         });
     }
 
@@ -288,7 +197,7 @@ fn validate_feed_evidence_detailed(input: &RfqLocalLawsInput) -> Result<(), Reje
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "delta-sdk"))]
 mod tests {
     use super::*;
 
@@ -298,12 +207,12 @@ mod tests {
             max_debit: 2_000_000_000, // 2000 USDD
             min_credit: None,
             expiry_timestamp: 1737500000,
-            allowed_sources: vec!["FeedA".to_string(), "FeedB".to_string()],
+            allowed_sources: alloc::vec!["FeedA".into(), "FeedB".into()],
             max_staleness_secs: 5,
             quorum_count: 2,
             quorum_tolerance_percent: 0.5,
-            allowed_takers: vec![],
-            allowed_assets: vec!["dETH".to_string()],
+            allowed_takers: alloc::vec![],
+            allowed_assets: alloc::vec!["dETH".into()],
             require_atomic_dvp: true,
             no_side_payments: true,
             nonce: 1,
@@ -315,23 +224,23 @@ mod tests {
     fn test_valid_fill() {
         let input = RfqLocalLawsInput {
             constraints: test_constraints(),
-            taker_owner_id: "some_taker".to_string(),
+            taker_owner_id: "some_taker".into(),
             fill_size: 1_000_000_000,
             fill_price: 1_950_000_000,
-            feed_evidence: vec![
+            feed_evidence: alloc::vec![
                 FeedEvidence {
-                    source: "FeedA".to_string(),
-                    asset: "dETH".to_string(),
+                    source: "FeedA".into(),
+                    asset: "dETH".into(),
                     price: 1950.0,
                     timestamp: 1737499998,
-                    signature: "sig".to_string(),
+                    signature: "sig".into(),
                 },
                 FeedEvidence {
-                    source: "FeedB".to_string(),
-                    asset: "dETH".to_string(),
+                    source: "FeedB".into(),
+                    asset: "dETH".into(),
                     price: 1951.0,
                     timestamp: 1737499999,
-                    signature: "sig".to_string(),
+                    signature: "sig".into(),
                 },
             ],
             current_timestamp: 1737500000,
@@ -347,23 +256,23 @@ mod tests {
     fn test_stale_feed_rejection() {
         let input = RfqLocalLawsInput {
             constraints: test_constraints(),
-            taker_owner_id: "some_taker".to_string(),
+            taker_owner_id: "some_taker".into(),
             fill_size: 1_000_000_000,
             fill_price: 1_950_000_000,
-            feed_evidence: vec![
+            feed_evidence: alloc::vec![
                 FeedEvidence {
-                    source: "FeedA".to_string(),
-                    asset: "dETH".to_string(),
+                    source: "FeedA".into(),
+                    asset: "dETH".into(),
                     price: 1950.0,
                     timestamp: 1737499990, // 10 seconds old
-                    signature: "sig".to_string(),
+                    signature: "sig".into(),
                 },
                 FeedEvidence {
-                    source: "FeedB".to_string(),
-                    asset: "dETH".to_string(),
+                    source: "FeedB".into(),
+                    asset: "dETH".into(),
                     price: 1951.0,
                     timestamp: 1737499999,
-                    signature: "sig".to_string(),
+                    signature: "sig".into(),
                 },
             ],
             current_timestamp: 1737500000,
@@ -379,23 +288,23 @@ mod tests {
     fn test_unauthorized_source_rejection() {
         let input = RfqLocalLawsInput {
             constraints: test_constraints(),
-            taker_owner_id: "some_taker".to_string(),
+            taker_owner_id: "some_taker".into(),
             fill_size: 1_000_000_000,
             fill_price: 1_950_000_000,
-            feed_evidence: vec![
+            feed_evidence: alloc::vec![
                 FeedEvidence {
-                    source: "FeedMallory".to_string(), // Not in allowlist
-                    asset: "dETH".to_string(),
+                    source: "FeedMallory".into(), // Not in allowlist
+                    asset: "dETH".into(),
                     price: 1950.0,
                     timestamp: 1737499999,
-                    signature: "sig".to_string(),
+                    signature: "sig".into(),
                 },
                 FeedEvidence {
-                    source: "FeedB".to_string(),
-                    asset: "dETH".to_string(),
+                    source: "FeedB".into(),
+                    asset: "dETH".into(),
                     price: 1951.0,
                     timestamp: 1737499999,
-                    signature: "sig".to_string(),
+                    signature: "sig".into(),
                 },
             ],
             current_timestamp: 1737500000,

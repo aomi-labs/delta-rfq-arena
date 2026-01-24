@@ -52,6 +52,13 @@ sp1up
 cargo prove --version
 ```
 
+> **Note (ARM Mac)**: The SP1 toolchain does not have pre-built binaries for ARM (Apple Silicon) Macs. Building requires either:
+> - An x86_64 Linux/Mac machine
+> - Docker with x86 emulation
+> - GitHub Actions CI (recommended)
+>
+> The ELF crate is ready at `crates/local-laws-elf/` - just needs `cargo prove build` on a supported platform.
+
 ---
 
 ## Integration Steps
