@@ -68,7 +68,6 @@ impl Compiler {
         Self {
             config,
             client: reqwest::Client::builder()
-                .no_proxy()  // Disable proxy to avoid issues with local proxies
                 .build()
                 .expect("Failed to build reqwest client"),
         }
@@ -171,10 +170,21 @@ Return ONLY valid JSON, no markdown code blocks."#,
             .await
             .map_err(|e| CompilerError::ApiError(e.to_string()))?;
 
-        let claude_response: ClaudeResponse = response
-            .json()
+        let status = response.status();
+        let body = response
+            .text()
             .await
-            .map_err(|e| CompilerError::ApiError(e.to_string()))?;
+            .map_err(|e| CompilerError::ApiError(format!("Failed to read response: {}", e)))?;
+
+        if !status.is_success() {
+            return Err(CompilerError::ApiError(format!(
+                "Claude API error ({}): {}",
+                status, body
+            )));
+        }
+
+        let claude_response: ClaudeResponse = serde_json::from_str(&body)
+            .map_err(|e| CompilerError::ApiError(format!("Failed to parse response: {} - body: {}", e, body)))?;
 
         claude_response
             .content
@@ -224,10 +234,21 @@ Return ONLY valid JSON, no markdown code blocks."#,
             .await
             .map_err(|e| CompilerError::ApiError(e.to_string()))?;
 
-        let gpt_response: GptResponse = response
-            .json()
+        let status = response.status();
+        let body = response
+            .text()
             .await
-            .map_err(|e| CompilerError::ApiError(e.to_string()))?;
+            .map_err(|e| CompilerError::ApiError(format!("Failed to read response: {}", e)))?;
+
+        if !status.is_success() {
+            return Err(CompilerError::ApiError(format!(
+                "OpenAI API error ({}): {}",
+                status, body
+            )));
+        }
+
+        let gpt_response: GptResponse = serde_json::from_str(&body)
+            .map_err(|e| CompilerError::ApiError(format!("Failed to parse response: {} - body: {}", e, body)))?;
 
         gpt_response
             .choices

@@ -24,6 +24,15 @@ pub struct DomainConfig {
 
 impl Default for DomainConfig {
     fn default() -> Self {
+        let llm_provider = env::var("LLM_PROVIDER")
+            .unwrap_or_else(|_| "claude".to_string());
+        
+        // Pick the right API key based on provider
+        let llm_api_key = match llm_provider.as_str() {
+            "gpt" | "openai" => env::var("OPENAI_API_KEY").unwrap_or_default(),
+            _ => env::var("ANTHROPIC_API_KEY").unwrap_or_default(),
+        };
+
         Self {
             shard: env::var("SHARD")
                 .ok()
@@ -37,11 +46,8 @@ impl Default for DomainConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(3000),
-            llm_provider: env::var("LLM_PROVIDER")
-                .unwrap_or_else(|_| "claude".to_string()),
-            llm_api_key: env::var("ANTHROPIC_API_KEY")
-                .or_else(|_| env::var("OPENAI_API_KEY"))
-                .unwrap_or_default(),
+            llm_provider,
+            llm_api_key,
             use_mock_compiler: env::var("USE_MOCK_COMPILER")
                 .map(|v| v == "1" || v.to_lowercase() == "true")
                 .unwrap_or(false),

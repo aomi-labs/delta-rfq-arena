@@ -72,9 +72,9 @@ async fn main() -> Result<()> {
             llm: config.llm_provider.clone(),
             api_key: config.llm_api_key.clone(),
             model: if config.llm_provider == "claude" {
-                "claude-3-5-sonnet-20241022".to_string()
+                "claude-sonnet-4-20250514".to_string()
             } else {
-                "gpt-4".to_string()
+                "gpt-4o-mini".to_string()
             },
         }))
     } else {
