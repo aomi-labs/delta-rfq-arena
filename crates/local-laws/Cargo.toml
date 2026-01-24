@@ -1,0 +1,14 @@
+[package]
+name = "rfq-local-laws"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rfq-models = { workspace = true }
+delta_local_laws = { workspace = true }
+delta_base_sdk = { workspace = true }
+delta_serializers = { workspace = true }
+delta_verifiable = { version = "=0.5.21", registry = "delta" }
+serde = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }

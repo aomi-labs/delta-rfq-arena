@@ -1,0 +1,12 @@
+[package]
+name = "rfq-models"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+delta_base_sdk = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }

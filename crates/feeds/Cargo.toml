@@ -1,0 +1,14 @@
+[package]
+name = "rfq-feeds"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rfq-models = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
