@@ -18,13 +18,16 @@ This demo showcases Delta's **Local Laws** - custom validation rules that are cr
 
 ```
 crates/
-├── models/          # Core data types (Quote, Constraints, Fill, Receipt)
-├── local-laws/      # LocalLaws implementation for RFQ guardrails
-├── compiler/        # LLM-based ESC compiler (English -> Guardrails)
-├── feeds/           # Mock price feed servers
-├── agents/          # Maker/Taker bot skeletons
-└── domain/          # HTTP server with RFQ endpoints
-    └── examples/    # Demo scripts
+├── models/           # Core data types (Quote, Constraints, Fill, Receipt)
+├── local-laws/       # LocalLaws implementation for RFQ guardrails
+├── local-laws-elf/   # SP1 zkVM program for local laws proofs
+├── global-laws-stub/ # Stub program for delta SDK requirement
+├── compiler/         # LLM-based ESC compiler (English -> Guardrails)
+├── feeds/            # Mock price feed servers
+├── agents/           # Maker/Taker bot skeletons
+└── domain/           # HTTP server with RFQ endpoints
+    └── examples/     # Demo scripts
+web/                  # Next.js frontend dashboard
 ```
 
 ## Quick Start
@@ -33,25 +36,48 @@ crates/
 
 - Rust 1.75+
 - Access to Delta's private crate registry (configured in `.cargo/config.toml`)
+- OpenAI or Anthropic API key (for LLM quote compilation)
+- Node.js 18+ (for frontend)
+- SP1 toolchain (optional, for ZK proofs): `curl -L https://sp1up.dev | bash && sp1up`
 
 ### Run the Server
 
 ```bash
-# Demo mode (mock compiler - no LLM needed)
-USE_MOCK_COMPILER=1 API_PORT=3335 cargo run -p rfq-domain
+# With GPT-4o-mini (recommended)
+LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain
 
-# With LLM compiler
-ANTHROPIC_API_KEY=sk-... API_PORT=3335 cargo run -p rfq-domain
+# With Claude
+LLM_PROVIDER=claude API_PORT=3335 cargo run -p rfq-domain
+
+# With testnet features (mock runtime)
+USE_MOCK_RUNTIME=1 LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain --features testnet
+
+# With real testnet (slow startup - SP1 key gen takes 5-10 min)
+USE_MOCK_RUNTIME=0 LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain --features testnet
+```
+
+### Run Frontend
+
+```bash
+cd web
+npm install
+npm run dev    # Development server on port 3003
 ```
 
 ### Run Tests
 
 ```bash
 # All tests
-cargo test
+cargo test --workspace
 
-# Just local-laws tests
+# Specific crate
+cargo test -p rfq-models
 cargo test -p rfq-local-laws
+cargo test -p rfq-compiler
+cargo test -p rfq-domain
+
+# With testnet features
+cargo test -p rfq-domain --features testnet
 
 # With output
 cargo test -- --nocapture
@@ -62,6 +88,19 @@ cargo test -- --nocapture
 ```bash
 # LocalLaws validation demo
 cargo run -p rfq-domain --example local_laws_demo
+```
+
+### Build ZK Programs
+
+```bash
+# Build local laws ELF (for fill validation proofs)
+cd crates/local-laws-elf && cargo prove build
+
+# Build global laws stub (required by delta SDK)
+cd crates/global-laws-stub && cargo prove build
+
+# Required env var for testnet builds
+export DELTA_GLOBAL_LAWS_PROGRAM="/path/to/delta/crates/global-laws-stub/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/global-laws-stub"
 ```
 
 ## API Endpoints
@@ -182,16 +221,25 @@ Response:
 
 ## Configuration
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
+### Backend Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_PROVIDER` | `claude` | LLM for quote compilation (`gpt` or `claude`) |
+| `OPENAI_API_KEY` | - | Required if `LLM_PROVIDER=gpt` |
+| `ANTHROPIC_API_KEY` | - | Required if `LLM_PROVIDER=claude` |
 | `API_PORT` | `3000` | HTTP server port |
+| `USE_MOCK_RUNTIME` | `1` | Skip testnet connection (`1`=mock, `0`=real) |
 | `SHARD` | `9` | Delta shard ID |
 | `KEYPAIR_PATH` | `keypair_9.json` | Path to Delta keypair |
 | `RPC_URL` | `http://164.92.69.96:9000` | Delta testnet RPC |
-| `USE_MOCK_COMPILER` | `false` | Use mock compiler (no LLM) |
-| `LLM_PROVIDER` | `claude` | LLM provider (`claude` or `gpt`) |
-| `ANTHROPIC_API_KEY` | - | Anthropic API key |
-| `OPENAI_API_KEY` | - | OpenAI API key |
+| `DELTA_GLOBAL_LAWS_PROGRAM` | - | Path to global laws ELF (for testnet builds) |
+
+### Frontend Environment Variables
+
+| Variable | File | Description |
+|----------|------|-------------|
+| `NEXT_PUBLIC_API_URL` | `web/.env.local` | Backend URL (default: `http://localhost:3335`) |
 
 ## How Local Laws Work
 
@@ -249,6 +297,37 @@ When wired to the Delta Runtime, these validations are enforced cryptographicall
                         └──────────────────┘
 ```
 
+## Command Reference
+
+### Quick Copy-Paste
+
+```bash
+# Terminal 1: Backend
+LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain
+
+# Terminal 2: Frontend  
+cd web && npm run dev
+
+# Terminal 3: Test API
+curl --noproxy '*' -X POST http://localhost:3335/quotes \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Buy 1 dETH max 2000 USDD, 5 min","maker_owner_id":"me","maker_shard":9}'
+```
+
+### All Commands
+
+| Command | Description |
+|---------|-------------|
+| `cargo run -p rfq-domain` | Run backend server |
+| `cargo run -p rfq-domain --features testnet` | Run with testnet/ZK support |
+| `cargo run -p rfq-domain --example local_laws_demo` | Run local laws demo |
+| `cargo test --workspace` | Run all tests |
+| `cargo test -p rfq-local-laws` | Test local laws |
+| `cargo check --workspace` | Check compilation |
+| `cd crates/local-laws-elf && cargo prove build` | Build ZK ELF |
+| `cd web && npm run dev` | Run frontend dev server |
+| `cd web && npm run build` | Build frontend for production |
+
 ## Development
 
 ### Adding New Guardrails
@@ -256,7 +335,8 @@ When wired to the Delta Runtime, these validations are enforced cryptographicall
 1. Add field to `QuoteConstraints` in `crates/models/src/constraints.rs`
 2. Add validation logic in `crates/local-laws/src/lib.rs`
 3. Add rejection reason in `crates/models/src/fill.rs`
-4. Update mock compiler in `crates/domain/src/main.rs`
+4. Update LLM prompt in `crates/compiler/src/lib.rs`
+5. Rebuild ELF: `cd crates/local-laws-elf && cargo prove build`
 
 ### Testing New Attack Scenarios
 
