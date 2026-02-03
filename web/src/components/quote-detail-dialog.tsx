@@ -55,10 +55,10 @@ export function QuoteDetailDialog({
             <Badge
               variant={
                 status === "active"
-                  ? "success"
+                  ? "secondary"
                   : status === "filled"
                     ? "default"
-                    : "warning"
+                    : "outline"
               }
             >
               {status}
@@ -175,7 +175,7 @@ export function QuoteDetailDialog({
                       </span>
                       <Badge
                         variant={
-                          receipt.result.status === "accepted" ? "success" : "destructive"
+                          receipt.result.status === "accepted" ? "secondary" : "destructive"
                         }
                       >
                         {receipt.result.status}

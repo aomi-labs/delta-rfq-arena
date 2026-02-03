@@ -15,9 +15,9 @@ export function QuoteCard({ quote, onClick }: QuoteCardProps) {
   const status = isExpired ? "expired" : quote.status;
 
   const statusVariant = {
-    active: "success" as const,
+    active: "secondary" as const,
     filled: "default" as const,
-    expired: "warning" as const,
+    expired: "outline" as const,
     cancelled: "destructive" as const,
   }[status];
 
