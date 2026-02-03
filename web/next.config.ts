@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  transpilePackages: ["@aomi-labs/widget-lib", "@aomi-labs/react"],
 };
 
 export default nextConfig;
