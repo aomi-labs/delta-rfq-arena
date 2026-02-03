@@ -1,0 +1,5 @@
+[registries.delta]
+index = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
+
+[registry]
+global-credential-providers = ["cargo:token"]

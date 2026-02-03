@@ -2340,6 +2340,8 @@ dependencies = [
 [[package]]
 name = "delta_proving_clients"
 version = "0.5.21"
+source = "sparse+https://crates.repyhlabs.dev/api/v1/crates/"
+checksum = "a366052fcd3e0fa7b95bed64d28b97602feb6ebef3c6e965d9ab6fa400e83aca"
 dependencies = [
  "delta_crypto",
  "delta_global_laws",

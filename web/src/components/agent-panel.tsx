@@ -152,8 +152,9 @@ export function AgentPanel({ title, role, agentId }: AgentPanelProps) {
   );
 }
 
-// This component would integrate with the actual AomiFrame
-// when @aomi-labs/react is installed
+// Real AomiFrame integration using @aomi-labs/react
+import { AomiChat } from "./aomi-chat";
+
 export function AomiFrameWrapper({
   role,
   height = "100%",
@@ -163,17 +164,9 @@ export function AomiFrameWrapper({
   height?: string;
   width?: string;
 }) {
-  // Placeholder - replace with actual AomiFrame when ready:
-  // import { AomiFrame } from "@aomi-labs/react";
-  // return <AomiFrame height={height} width={width} agentId={role === "maker" ? "rfq-maker" : "rfq-taker"} />;
-
   return (
     <div style={{ height, width }}>
-      <AgentPanel
-        title={role === "maker" ? "Maker Agent" : "Taker Agent"}
-        role={role}
-        agentId={role === "maker" ? "rfq-maker-agent" : "rfq-taker-agent"}
-      />
+      <AomiChat role={role} height={height} />
     </div>
   );
 }
