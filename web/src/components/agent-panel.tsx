@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { MessageSquare, Send } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { AomiFrame } from "@aomi-labs/widget-lib";
+import { Button } from "@app/components/ui/button";
+import { Input } from "@app/components/ui/input";
+import { Badge } from "@app/components/ui/badge";
 
 interface Message {
   id: string;
@@ -20,7 +21,7 @@ interface AgentPanelProps {
 }
 
 // Placeholder for AomiFrame integration
-// In production, this would use: import { AomiFrame } from "@aomi-labs/react";
+// In production, this would use: import { AomiFrame } from "@aomi-labs/widget-lib";
 export function AgentPanel({ title, role, agentId }: AgentPanelProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -152,8 +153,7 @@ export function AgentPanel({ title, role, agentId }: AgentPanelProps) {
   );
 }
 
-// Real AomiFrame integration using @aomi-labs/react
-import { AomiChat } from "./aomi-chat";
+// AomiFrame integration using @aomi-labs/widget-lib
 
 export function AomiFrameWrapper({
   role,
@@ -165,8 +165,9 @@ export function AomiFrameWrapper({
   width?: string;
 }) {
   return (
-    <div style={{ height, width }}>
-      <AomiChat role={role} height={height} />
-    </div>
+    <AomiFrame.Root key={role} height={height} width={width} walletPosition="footer">
+      <AomiFrame.Header />
+      <AomiFrame.Composer withControl />
+    </AomiFrame.Root>
   );
 }

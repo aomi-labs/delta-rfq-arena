@@ -1,9 +1,9 @@
 "use client";
 
-import { QuoteGrid } from "@/components/quote-grid";
-import { AomiFrameWrapper } from "@/components/agent-panel";
-import { useQuotes } from "@/hooks/use-quotes";
-import { Badge } from "@/components/ui/badge";
+import { QuoteGrid } from "@app/components/quote-grid";
+import { AomiFrameWrapper } from "@app/components/agent-panel";
+import { useQuotes } from "@app/hooks/use-quotes";
+import { Badge } from "@app/components/ui/badge";
 
 export default function Home() {
   const { quotes, loading, refresh, getReceipts } = useQuotes();

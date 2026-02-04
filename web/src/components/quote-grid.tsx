@@ -2,11 +2,11 @@
 
 import { useState, useMemo } from "react";
 import { Search, RefreshCw } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { QuoteCard } from "@/components/quote-card";
-import { QuoteDetailDialog } from "@/components/quote-detail-dialog";
-import type { Quote, FillReceipt } from "@/types/api";
+import { Input } from "@app/components/ui/input";
+import { Button } from "@app/components/ui/button";
+import { QuoteCard } from "@app/components/quote-card";
+import { QuoteDetailDialog } from "@app/components/quote-detail-dialog";
+import type { Quote, FillReceipt } from "@app/types/api";
 
 interface QuoteGridProps {
   quotes: Quote[];
