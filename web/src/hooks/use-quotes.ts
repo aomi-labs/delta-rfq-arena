@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { Quote, FillReceipt, CreateQuoteRequest, CreateQuoteResponse, FillRequest } from "@app/types/api";
+import type { Quote, FillReceipt, CreateQuoteRequest, CreateQuoteResponse, FillRequest } from "@/types/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3335";
 

@@ -1,9 +1,13 @@
 "use client";
 
-import { QuoteGrid } from "@app/components/quote-grid";
-import { AomiFrameWrapper } from "@app/components/agent-panel";
-import { useQuotes } from "@app/hooks/use-quotes";
-import { Badge } from "@app/components/ui/badge";
+import { QuoteGrid } from "@/components/quote-grid";
+import dynamic from "next/dynamic";
+const AomiFrameWrapper = dynamic(
+  () => import("@/components/agent-panel").then((mod) => mod.AomiFrameWrapper),
+  { ssr: false },
+);
+import { useQuotes } from "@/hooks/use-quotes";
+import { Badge } from "@/components/ui/badge";
 
 export default function Home() {
   const { quotes, loading, refresh, getReceipts } = useQuotes();

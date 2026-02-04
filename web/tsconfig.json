@@ -23,11 +23,8 @@
       }
     ],
     "paths": {
-      "@app/*": [
-        "./src/*"
-      ],
       "@/*": [
-        "./node_modules/@aomi-labs/widget-lib/src/*"
+        "./src/*"
       ]
     }
   },

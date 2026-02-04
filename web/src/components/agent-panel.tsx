@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { MessageSquare, Send } from "lucide-react";
-import { AomiFrame } from "@aomi-labs/widget-lib";
-import { Button } from "@app/components/ui/button";
-import { Input } from "@app/components/ui/input";
-import { Badge } from "@app/components/ui/badge";
+import { Send } from "lucide-react";
+import { AomiFrame } from "@/components/aomi-frame";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 interface Message {
   id: string;
@@ -21,7 +21,7 @@ interface AgentPanelProps {
 }
 
 // Placeholder for AomiFrame integration
-// In production, this would use: import { AomiFrame } from "@aomi-labs/widget-lib";
+// Installed via shadcn: npx shadcn add https://aomi.dev/r/aomi-frame.json
 export function AgentPanel({ title, role, agentId }: AgentPanelProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -153,7 +153,7 @@ export function AgentPanel({ title, role, agentId }: AgentPanelProps) {
   );
 }
 
-// AomiFrame integration using @aomi-labs/widget-lib
+// AomiFrame integration installed via shadcn
 
 export function AomiFrameWrapper({
   role,

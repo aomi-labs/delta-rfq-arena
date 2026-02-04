@@ -7,11 +7,10 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from "@app/components/ui/dialog";
-import { Badge } from "@app/components/ui/badge";
-import { Button } from "@app/components/ui/button";
-import type { Quote, FillReceipt } from "@app/types/api";
-import { formatDistanceToNow, formatTimestamp, formatUnits } from "@app/lib/format";
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import type { Quote, FillReceipt } from "@/types/api";
+import { formatDistanceToNow, formatUnits } from "@/lib/format";
 
 interface QuoteDetailDialogProps {
   quote: Quote | null;
