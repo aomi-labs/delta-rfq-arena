@@ -361,5 +361,5 @@ pub fn summarize_constraints(constraints: &QuoteConstraints) -> String {
         parts.push("No side-payments allowed".to_string());
     }
 
-    parts.join("\n")
+    parts.join(" | ")
 }

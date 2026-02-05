@@ -40,9 +40,11 @@ use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
+mod api_types;
 mod config;
 mod state;
 
+use api_types::{ApiCreateQuoteResponse, ApiFillResponse, ApiQuote, ApiReceiptSummary};
 use config::DomainConfig;
 use state::DomainState;
 
@@ -155,10 +157,10 @@ async fn main() -> Result<()> {
         // Quote endpoints
         .route("/quotes", get(list_quotes))
         .route("/quotes", post(create_quote))
-        .route("/quotes/{id}", get(get_quote))
-        .route("/quotes/{id}/fill", post(fill_quote))
+        .route("/quotes/:id", get(get_quote))
+        .route("/quotes/:id/fill", post(fill_quote))
         // Receipt endpoints
-        .route("/quotes/{id}/receipts", get(get_receipts))
+        .route("/quotes/:id/receipts", get(get_receipts))
         // CORS
         .layer(
             CorsLayer::new()
@@ -175,9 +177,9 @@ async fn main() -> Result<()> {
     tracing::info!("  GET  /health              - Health check");
     tracing::info!("  GET  /quotes              - List quotes");
     tracing::info!("  POST /quotes              - Create quote from text");
-    tracing::info!("  GET  /quotes/{{id}}         - Get quote");
-    tracing::info!("  POST /quotes/{{id}}/fill    - Fill quote");
-    tracing::info!("  GET  /quotes/{{id}}/receipts - Get receipts");
+    tracing::info!("  GET  /quotes/:id         - Get quote");
+    tracing::info!("  POST /quotes/:id/fill    - Fill quote");
+    tracing::info!("  GET  /quotes/:id/receipts - Get receipts");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
@@ -266,21 +268,22 @@ async fn health_check(State(state): State<Arc<AppState>>) -> Json<serde_json::Va
 }
 
 /// List all active quotes
-async fn list_quotes(State(state): State<Arc<AppState>>) -> Json<Vec<Quote>> {
+async fn list_quotes(State(state): State<Arc<AppState>>) -> Json<Vec<ApiQuote>> {
     let quotes = state.domain.get_active_quotes().await;
-    Json(quotes)
+    let api_quotes: Vec<ApiQuote> = quotes.iter().map(ApiQuote::from).collect();
+    Json(api_quotes)
 }
 
 /// Get a specific quote
 async fn get_quote(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-) -> Result<Json<Quote>, StatusCode> {
+) -> Result<Json<ApiQuote>, StatusCode> {
     state
         .domain
         .get_quote(&id)
         .await
-        .map(Json)
+        .map(|q| Json(ApiQuote::from(&q)))
         .ok_or(StatusCode::NOT_FOUND)
 }
 
@@ -288,7 +291,7 @@ async fn get_quote(
 async fn create_quote(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateQuoteRequest>,
-) -> Result<Json<CreateQuoteResponse>, (StatusCode, String)> {
+) -> Result<Json<ApiCreateQuoteResponse>, (StatusCode, String)> {
     tracing::info!("Creating quote from text: {}", request.text);
 
     // Generate quote ID
@@ -330,9 +333,11 @@ async fn create_quote(
     // Generate summary
     let summary = rfq_compiler::summarize_constraints(&constraints);
 
-    Ok(Json(CreateQuoteResponse {
-        quote,
+    // Return flattened API response
+    Ok(Json(ApiCreateQuoteResponse {
+        quote: ApiQuote::from(&quote),
         constraints_summary: summary,
+        message: "Quote created successfully. The Local Law has been compiled and will enforce your constraints cryptographically.".to_string(),
     }))
 }
 
@@ -341,7 +346,7 @@ async fn fill_quote(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
     Json(request): Json<FillRequest>,
-) -> Result<Json<FillReceipt>, (StatusCode, String)> {
+) -> Result<Json<ApiFillResponse>, (StatusCode, String)> {
     tracing::info!(
         "Fill attempt for quote {}: taker={}",
         id,
@@ -390,7 +395,7 @@ async fn fill_quote(
         );
 
         state.domain.add_receipt(id, receipt.clone()).await;
-        return Ok(Json(receipt));
+        return Ok(Json(ApiFillResponse::from(&receipt)));
     }
 
     // Create fill attempt
@@ -468,7 +473,7 @@ async fn fill_quote(
         }
     );
 
-    Ok(Json(receipt))
+    Ok(Json(ApiFillResponse::from(&receipt)))
 }
 
 /// Submit a fill to Delta Runtime for SDL creation and proof
@@ -537,7 +542,8 @@ async fn submit_fill_to_delta(
 async fn get_receipts(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
-) -> Json<Vec<FillReceipt>> {
+) -> Json<Vec<ApiReceiptSummary>> {
     let receipts = state.domain.get_receipts(&id).await;
-    Json(receipts)
+    let api_receipts: Vec<ApiReceiptSummary> = receipts.iter().map(ApiReceiptSummary::from).collect();
+    Json(api_receipts)
 }
