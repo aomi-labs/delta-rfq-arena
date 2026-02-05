@@ -188,12 +188,12 @@ const ThreadSuggestions: FC = () => {
 
 const Composer: FC = () => {
   return (
-    <div className="aui-composer-wrapper bg-background sticky bottom-0 mx-auto flex w-full max-w-[var(--thread-max-width)] flex-col gap-4 overflow-visible rounded-t-3xl pb-4 md:pb-6">
+    <div className="aui-composer-wrapper bg-background sticky bottom-0 mx-auto flex w-full max-w-[var(--thread-max-width)] flex-col gap-4 overflow-visible pb-4 md:pb-6 px-2">
       <ThreadScrollToBottom />
-      <ComposerPrimitive.Root className="aui-composer-root rounded-4xl bg-sidebar text-card-foreground relative flex w-full flex-col px-1 pt-2">
+      <ComposerPrimitive.Root className="aui-composer-root rounded-3xl bg-sidebar border text-card-foreground relative flex w-full flex-col px-1 pt-2">
         <ComposerPrimitive.Input
           placeholder="Send a message..."
-          className="aui-composer-input text-foreground placeholder:text-muted-foreground focus:outline-primary ml-3 mt-2 max-h-32 min-h-16 w-full resize-none bg-transparent px-3.5 pb-3 pt-1.5 text-sm outline-none dark:text-white"
+          className="aui-composer-input text-foreground placeholder:text-muted-foreground focus:outline-none ml-3 mt-2 max-h-32 min-h-12 w-full resize-none bg-transparent px-3.5 pb-3 pt-1.5 text-sm outline-none dark:text-white"
           rows={1}
           autoFocus
           aria-label="Message input"

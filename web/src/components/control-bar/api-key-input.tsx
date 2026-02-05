@@ -95,6 +95,7 @@ export const ApiKeyInput: FC<ApiKeyInputProps> = ({
           {hasApiKey && (
             <Button
               variant="outline"
+              className="rounded-full"
               onClick={() => {
                 setState({ apiKey: null });
                 setInputValue("");
@@ -104,6 +105,7 @@ export const ApiKeyInput: FC<ApiKeyInputProps> = ({
             </Button>
           )}
           <Button
+            className="rounded-full"
             onClick={() => {
               if (inputValue.trim()) {
                 setState({ apiKey: inputValue.trim() });
