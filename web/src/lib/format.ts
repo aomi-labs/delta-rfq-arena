@@ -17,6 +17,21 @@ export function formatDistanceToNow(date: Date): string {
   return `${prefix}${seconds}s${suffix}`;
 }
 
+// Format Unix timestamp (seconds) to distance from now
+export function formatUnixDistanceToNow(timestamp: number): string {
+  return formatDistanceToNow(new Date(timestamp * 1000));
+}
+
+// Convert Unix timestamp to Date
+export function unixToDate(timestamp: number): Date {
+  return new Date(timestamp * 1000);
+}
+
+// Check if Unix timestamp is in the past
+export function isExpired(timestamp: number): boolean {
+  return Date.now() > timestamp * 1000;
+}
+
 export function formatTimestamp(timestamp: number): string {
   return new Date(timestamp * 1000).toLocaleString();
 }

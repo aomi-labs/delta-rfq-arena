@@ -8,18 +8,43 @@ This demo showcases Delta's **Local Laws** - custom validation rules that are cr
 
 ### How It Works
 
-1. **Maker posts a quote in English** (e.g., "Buy 10 dETH at most 2000 USDD, expires in 5 minutes")
-2. **Backend compiles to guardrails** - LLM extracts max debit, expiry, allowed feeds, quorum rules, etc.
-3. **Takers attempt to fill** - submitting price feed evidence
-4. **Local Laws validate** - only compliant fills settle; attacks are rejected with clear reasons
-5. **Delta Runtime proves** - ZK proof generated and submitted to testnet
-6. **Receipts generated** - cryptographic proof of what happened and why
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         RFQ ARENA FLOW                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  1. MAKER POSTS QUOTE (English)                                         │
+│     "Buy 10 dETH at most 2000 USDD, expires 5 min, FeedA/FeedB only"    │
+│                              │                                           │
+│                              ▼                                           │
+│  2. LLM COMPILES TO LOCAL LAW (Guardrails)                              │
+│     max_debit: 20000e9, expiry: +5min, feeds: [FeedA,FeedB], quorum: 2  │
+│                              │                                           │
+│                              ▼                                           │
+│  3. TAKER ATTEMPTS FILL (with price feed evidence)                      │
+│     size: 10, price: 1950, feeds: [{FeedA, 1950}, {FeedB, 1951}]        │
+│                              │                                           │
+│                              ▼                                           │
+│  4. LOCAL LAWS VALIDATE                                                  │
+│     ✓ Price within limit? ✓ Feeds fresh? ✓ Quorum met? ✓ Not expired?   │
+│                              │                                           │
+│                              ▼                                           │
+│  5. DELTA RUNTIME SETTLES                                                │
+│     Create transfers → Sign → Apply → Submit SDL → Generate ZK Proof    │
+│                              │                                           │
+│                              ▼                                           │
+│  6. RECEIPT GENERATED                                                    │
+│     SDL Hash: CALq32Q564ns... (cryptographic proof of settlement)       │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
 ## Project Structure
 
 ```
 delta-rfq-arena/
-├── start.sh              # Start all services (FE + BE)
+├── start.sh              # Start FE + RFQ server (Aomi managed externally)
+├── test-flow.sh          # E2E API test script
 ├── crates/
 │   ├── models/           # Core data types (Quote, Constraints, Fill, Receipt)
 │   ├── local-laws/       # LocalLaws implementation for RFQ guardrails
@@ -28,9 +53,12 @@ delta-rfq-arena/
 │   ├── feeds/            # Mock price feed servers
 │   └── domain/           # HTTP server + Delta Runtime integration
 │       ├── src/
-│       │   ├── main.rs   # Server entry point
+│       │   ├── main.rs   # Server entry point + proof flow
 │       │   ├── config.rs # YAML config loading
-│       │   └── state.rs  # In-memory quote/receipt storage
+│       │   ├── state.rs  # In-memory quote/receipt storage
+│       │   └── api_types.rs # Flattened API response types
+│       ├── tests/
+│       │   └── e2e_proof_flow.rs # Integration tests
 │       ├── domain.yaml   # Testnet configuration
 │       └── keypair_9.json # Pre-funded test keypair (shard 9)
 └── web/                  # Next.js frontend with Aomi agent integration
@@ -44,6 +72,7 @@ delta-rfq-arena/
 - Node.js 18+ (for frontend)
 - Access to Delta's private crate registry (configured in `.cargo/config.toml`)
 - Anthropic API key (for LLM quote compilation)
+- Aomi runtime (managed externally, for agent chat features)
 
 ### One-Command Start
 
@@ -51,10 +80,8 @@ delta-rfq-arena/
 # Set your API key
 export ANTHROPIC_API_KEY=your_key_here
 
-# Start everything (frontend + backend)
-./start.sh
-
-# Or with custom ports
+# Start everything (frontend + RFQ server)
+# Note: Aomi agent should already be running on port 8080
 ./start.sh --rfq-port 3335 --aomi-port 8080
 
 # Mock mode (no Delta testnet connection)
@@ -62,22 +89,35 @@ export ANTHROPIC_API_KEY=your_key_here
 ```
 
 This starts:
-- **RFQ Domain Server** on port 3335 (quotes, fills, local laws)
-- **Aomi Agent Server** on port 8080 (AI agent backend, if installed)
+- **RFQ Domain Server** on port 3335 (quotes, fills, local laws, proofs)
 - **Frontend** on port 3000 (Next.js web UI)
+- Connects to **Aomi Agent** on port 8080 (managed externally)
+
+### Test the E2E Flow (API Only)
+
+```bash
+# Start the server
+ANTHROPIC_API_KEY=... cargo run -p rfq-domain -- --mock --port 3335
+
+# In another terminal, run the test script
+./test-flow.sh --port 3335
+```
+
+This tests the complete flow: Create Quote → Fill Quote → ZK Proof → Settlement
 
 ### Manual Start (Alternative)
 
 ```bash
-# Terminal 1: Backend
+# Terminal 1: RFQ Domain Server
 export ANTHROPIC_API_KEY=your_key
-cd crates/domain
-cargo run -- --mock --port 3335
+cargo run -p rfq-domain -- --mock --port 3335
 
 # Terminal 2: Frontend
 cd web
 npm install
-NEXT_PUBLIC_API_URL=http://localhost:3335 npm run dev
+NEXT_PUBLIC_API_URL=http://localhost:3335 \
+NEXT_PUBLIC_BACKEND_URL=http://localhost:8080 \
+npm run dev
 ```
 
 ### Start Script Options
@@ -87,25 +127,27 @@ NEXT_PUBLIC_API_URL=http://localhost:3335 npm run dev
 
 Options:
   --rfq-port PORT    Port for RFQ Domain server (default: 3335)
-  --aomi-port PORT   Port for Aomi Agent server (default: 8080)
+  --aomi-port PORT   Port for Aomi Agent (external, default: 8080)
   --fe-port PORT     Port for Frontend dev server (default: 3000)
   --no-fe            Skip starting the frontend
-  --no-aomi          Skip starting the Aomi agent
+  --no-aomi          Skip Aomi agent detection
   --mock             Run RFQ server in mock mode (no Delta testnet)
   -h, --help         Show help message
 ```
 
+> **Note:** The Aomi agent is managed externally. The start script only checks if it's running on the specified port.
+
 ### Run Tests
 
 ```bash
-# All tests
+# All tests (including E2E proof flow tests)
 cargo test --workspace
 
 # Specific crate
 cargo test -p rfq-models
 cargo test -p rfq-local-laws
 cargo test -p rfq-compiler
-cargo test -p rfq-domain
+cargo test -p rfq-domain    # Includes 7 E2E integration tests
 
 # With output
 cargo test -- --nocapture
@@ -123,6 +165,23 @@ cargo run -p rfq-domain --example local_laws_demo
 ```bash
 # Build local laws ELF (for fill validation proofs)
 cd crates/local-laws-elf && cargo prove build
+```
+
+### E2E Test Script
+
+The `test-flow.sh` script tests the complete proof flow via curl:
+
+```bash
+./test-flow.sh --port 3335
+
+# Output:
+# [Step 1] Creating quote as Maker...
+# [Step 2] Listing active quotes...
+# [Step 3] Getting quote details...
+# [Step 4] Filling quote as Taker...
+# [OK] Fill accepted!
+#   SDL Hash: ACEiKUJH7zW5s8zf2JDh1a38WMQh7TzPkVuYEjcKdqFP
+# Settlement details: { maker_debit: 1950500000000, ... }
 ```
 
 ## API Endpoints
@@ -179,18 +238,45 @@ Response:
 ### Fill a Quote
 
 ```bash
+# Get current timestamp
+NOW=$(date +%s)
+
 curl -X POST http://localhost:3335/quotes/QUOTE_ID/fill \
   -H "Content-Type: application/json" \
-  -d '{
-    "taker_owner_id": "taker456",
-    "taker_shard": 9,
-    "size": 10.0,
-    "price": 1950.0,
-    "feed_evidence": [
-      {"source": "FeedA", "asset": "dETH", "price": 1950.0, "timestamp": 1769250388, "signature": "sig1"},
-      {"source": "FeedB", "asset": "dETH", "price": 1952.0, "timestamp": 1769250388, "signature": "sig2"}
+  -d "{
+    \"taker_owner_id\": \"taker456\",
+    \"taker_shard\": 9,
+    \"size\": 1.0,
+    \"price\": 1950.5,
+    \"feed_evidence\": [
+      {\"source\": \"FeedA\", \"asset\": \"dETH\", \"price\": 1950.0, \"timestamp\": $NOW, \"signature\": \"sig1\"},
+      {\"source\": \"FeedB\", \"asset\": \"dETH\", \"price\": 1951.0, \"timestamp\": $NOW, \"signature\": \"sig2\"}
     ]
-  }'
+  }"
+```
+
+Response (success):
+```json
+{
+  "success": true,
+  "fill_id": "8232b73f-920e-4923-b24b-f7aebbffbe30",
+  "message": "Fill accepted! The fill satisfied all Local Law constraints.",
+  "receipt": {
+    "quote_id": "66afd0c4-855a-4dfe-ba04-7f66533361e2",
+    "settlement": {
+      "maker_debit": 1950500000000,
+      "maker_credit": 1000000000,
+      "taker_debit": 1000000000,
+      "taker_credit": 1950500000000,
+      "asset": "dETH",
+      "currency": "USDD"
+    }
+  },
+  "proof": {
+    "sdl_hash": "ACEiKUJH7zW5s8zf2JDh1a38WMQh7TzPkVuYEjcKdqFP",
+    "status": "verified"
+  }
+}
 ```
 
 ## Adversarial Scenarios
@@ -342,13 +428,16 @@ When wired to the Delta Runtime, these validations are enforced cryptographicall
 ### Quick Copy-Paste
 
 ```bash
-# One command - start everything
+# One command - start everything (assumes Aomi running on 8080)
 export ANTHROPIC_API_KEY=your_key
-./start.sh --mock
+./start.sh --mock --rfq-port 3335 --aomi-port 8080
+
+# Test the E2E flow via API
+./test-flow.sh --port 3335
 
 # Or manually:
-# Terminal 1: Backend
-cd crates/domain && cargo run -- --mock --port 3335
+# Terminal 1: RFQ Server
+cargo run -p rfq-domain -- --mock --port 3335
 
 # Terminal 2: Frontend  
 cd web && NEXT_PUBLIC_API_URL=http://localhost:3335 npm run dev
@@ -363,13 +452,14 @@ curl -X POST http://localhost:3335/quotes \
 
 | Command | Description |
 |---------|-------------|
-| `./start.sh` | Start all services (FE + BE) |
-| `./start.sh --mock` | Start in mock mode (no testnet) |
+| `./start.sh --mock` | Start FE + RFQ server in mock mode |
 | `./start.sh --rfq-port 3335 --aomi-port 8080` | Custom ports |
-| `cargo run -p rfq-domain -- --mock` | Run backend only (mock) |
-| `cargo run -p rfq-domain --example local_laws_demo` | Run local laws demo |
-| `cargo test --workspace` | Run all tests |
-| `cargo test -p rfq-local-laws` | Test local laws |
+| `./test-flow.sh --port 3335` | Run E2E API test |
+| `cargo run -p rfq-domain -- --mock` | Run RFQ server only (mock) |
+| `cargo run -p rfq-domain` | Run RFQ server (testnet) |
+| `cargo test --workspace` | Run all tests (10 total) |
+| `cargo test -p rfq-domain` | Run domain tests (7 E2E tests) |
+| `cargo test -p rfq-local-laws` | Test local laws validation |
 | `cargo check --workspace` | Check compilation |
 | `cd crates/local-laws-elf && cargo prove build` | Build ZK ELF |
 | `cd web && npm run dev` | Run frontend dev server |
@@ -410,11 +500,51 @@ let runtime = Runtime::builder(shard, keypair)
     .build()
     .await?;
 
+// Get next nonce for domain vault
+let nonce = runtime.domain_view().next_nonce(&domain_owner)?;
+
+// Create transfer verifiables (domain acts as escrow)
+let transfer1 = DebitAllowance {
+    credited: taker_address,
+    allowances: BTreeMap::from([(TokenKind::Native, AllowanceAmount::Fungible(amount))]),
+    new_nonce: nonce,
+    debited_shard: shard,
+};
+let v1 = SignedDebitAllowance::sign(transfer1, &keypair)?;
+
 // SDL submission flow
-runtime.apply(default_execute(verifiables)).await?;
+runtime.apply(default_execute(vec![v1, v2])).await?;
 let sdl_hash = runtime.submit().await?;
 runtime.prove_with_local_laws_input(sdl_hash, input_bytes).await?;
 runtime.submit_proof(sdl_hash).await?;
+```
+
+### Proof Flow
+
+```
+Fill Request
+    │
+    ▼
+Local Laws Validation (validate_fill)
+    │
+    ▼
+Create DebitAllowance Verifiables
+    │  - Domain → Taker (currency payment)
+    │  - Domain → Maker (asset delivery)
+    ▼
+Sign with Domain Keypair
+    │
+    ▼
+Apply to Runtime (state diffs)
+    │
+    ▼
+Submit SDL → Get SDL Hash
+    │
+    ▼
+Generate ZK Proof (with local laws input)
+    │
+    ▼
+Submit Proof to Base Layer
 ```
 
 ### Testnet Credentials (Pre-configured)

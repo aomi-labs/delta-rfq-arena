@@ -34,7 +34,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # PIDs for cleanup
 RFQ_PID=""
-AOMI_PID=""
 FE_PID=""
 
 # =============================================================================
@@ -88,17 +87,12 @@ cleanup() {
         kill "$FE_PID" 2>/dev/null || true
     fi
     
-    if [ -n "$AOMI_PID" ] && kill -0 "$AOMI_PID" 2>/dev/null; then
-        log_info "Stopping Aomi agent (PID: $AOMI_PID)..."
-        kill "$AOMI_PID" 2>/dev/null || true
-    fi
-    
     if [ -n "$RFQ_PID" ] && kill -0 "$RFQ_PID" 2>/dev/null; then
         log_info "Stopping RFQ server (PID: $RFQ_PID)..."
         kill "$RFQ_PID" 2>/dev/null || true
     fi
     
-    # Also clean up any orphaned processes
+    # Also clean up any orphaned processes (not Aomi - managed externally)
     pkill -f "rfq-domain" 2>/dev/null || true
     pkill -f "next dev" 2>/dev/null || true
     
@@ -193,14 +187,9 @@ if [ -z "$ANTHROPIC_API_KEY" ]; then
     log_warn "Set it with: export ANTHROPIC_API_KEY=your_key"
 fi
 
-# Check ports
+# Check ports (skip Aomi - managed externally)
 if check_port $RFQ_PORT; then
     log_error "Port $RFQ_PORT is already in use (RFQ server)"
-    exit 1
-fi
-
-if [ "$SKIP_AOMI" = false ] && check_port $AOMI_PORT; then
-    log_error "Port $AOMI_PORT is already in use (Aomi agent)"
     exit 1
 fi
 
@@ -244,24 +233,13 @@ else
     exit 1
 fi
 
-# Start Aomi Agent (if available and not skipped)
+# Aomi Agent is managed externally - just check if it's running
 if [ "$SKIP_AOMI" = false ]; then
-    # Check if aomi binary or server exists
-    if command -v aomi &> /dev/null; then
-        log_info "Starting Aomi Agent on port $AOMI_PORT..."
-        aomi serve --port "$AOMI_PORT" > /tmp/aomi-agent.log 2>&1 &
-        AOMI_PID=$!
-        
-        if wait_for_service "http://localhost:$AOMI_PORT/health" "Aomi Agent" 30; then
-            log_success "Aomi Agent started (PID: $AOMI_PID)"
-        else
-            log_warn "Aomi Agent failed to start. Frontend agent features may not work."
-            log_warn "Check /tmp/aomi-agent.log for details"
-        fi
+    if check_port $AOMI_PORT; then
+        log_success "Aomi Agent detected on port $AOMI_PORT (managed externally)"
     else
-        log_warn "Aomi CLI not found. Skipping agent server."
-        log_warn "Install with: cargo install aomi-cli"
-        SKIP_AOMI=true
+        log_warn "Aomi Agent not running on port $AOMI_PORT"
+        log_warn "Start it externally or frontend agent features won't work"
     fi
 fi
 
@@ -306,8 +284,8 @@ echo "    - Health:         http://localhost:$RFQ_PORT/health"
 echo "    - Quotes:         http://localhost:$RFQ_PORT/quotes"
 echo ""
 
-if [ "$SKIP_AOMI" = false ] && [ -n "$AOMI_PID" ]; then
-    echo "  Aomi Agent:         http://localhost:$AOMI_PORT"
+if [ "$SKIP_AOMI" = false ]; then
+    echo "  Aomi Agent:         http://localhost:$AOMI_PORT (external)"
     echo ""
 fi
 
@@ -318,7 +296,6 @@ fi
 
 echo "  Logs:"
 echo "    - RFQ:      /tmp/rfq-domain.log"
-[ "$SKIP_AOMI" = false ] && echo "    - Aomi:     /tmp/aomi-agent.log"
 [ "$SKIP_FE" = false ] && echo "    - Frontend: /tmp/frontend.log"
 echo ""
 echo "  Press Ctrl+C to stop all services"

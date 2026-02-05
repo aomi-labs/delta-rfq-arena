@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { Quote, FillReceipt, CreateQuoteRequest, CreateQuoteResponse, FillRequest } from "@/types/api";
+import type { Quote, FillReceipt, CreateQuoteRequest, CreateQuoteResponse, FillRequest, FillResponse } from "@/types/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8099";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3335";
 
 export function useQuotes() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -47,7 +47,7 @@ export function useQuotes() {
     return data;
   };
 
-  const fillQuote = async (quoteId: string, request: FillRequest): Promise<FillReceipt> => {
+  const fillQuote = async (quoteId: string, request: FillRequest): Promise<FillResponse> => {
     const res = await fetch(`${API_BASE}/quotes/${quoteId}/fill`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { QuoteCard } from "@/components/quote-card";
 import { QuoteDetailDialog } from "@/components/quote-detail-dialog";
 import type { Quote, FillReceipt } from "@/types/api";
+import { isExpired } from "@/lib/format";
 
 interface QuoteGridProps {
   quotes: Quote[];
@@ -25,10 +26,10 @@ export function QuoteGrid({ quotes, loading, onRefresh, onFetchReceipts }: Quote
     const lower = search.toLowerCase();
     return quotes.filter(
       (q) =>
-        q.spec.asset.toLowerCase().includes(lower) ||
-        q.spec.side.toLowerCase().includes(lower) ||
+        q.asset.toLowerCase().includes(lower) ||
+        q.direction.toLowerCase().includes(lower) ||
         q.maker_owner_id.toLowerCase().includes(lower) ||
-        q.original_text.toLowerCase().includes(lower) ||
+        q.text.toLowerCase().includes(lower) ||
         q.status.toLowerCase().includes(lower)
     );
   }, [quotes, search]);
@@ -45,7 +46,7 @@ export function QuoteGrid({ quotes, loading, onRefresh, onFetchReceipts }: Quote
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search quotes by asset, side, maker, or status..."
+            placeholder="Search quotes by asset, direction, maker, or status..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-10"
@@ -61,13 +62,13 @@ export function QuoteGrid({ quotes, loading, onRefresh, onFetchReceipts }: Quote
         <span>{filteredQuotes.length} quotes</span>
         <span>|</span>
         <span className="text-green-600">
-          {filteredQuotes.filter((q) => q.status === "active").length} active
+          {filteredQuotes.filter((q) => q.status === "active" && !isExpired(q.expires_at)).length} active
         </span>
         <span className="text-blue-600">
           {filteredQuotes.filter((q) => q.status === "filled").length} filled
         </span>
         <span className="text-yellow-600">
-          {filteredQuotes.filter((q) => new Date(q.expires_at) < new Date()).length} expired
+          {filteredQuotes.filter((q) => isExpired(q.expires_at)).length} expired
         </span>
       </div>
 
