@@ -243,25 +243,43 @@ Response:
 
 ## Configuration
 
-### Backend Environment Variables
+### Domain Server Config (`crates/domain/domain.yaml`)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LLM_PROVIDER` | `claude` | LLM for quote compilation (`gpt` or `claude`) |
-| `OPENAI_API_KEY` | - | Required if `LLM_PROVIDER=gpt` |
-| `ANTHROPIC_API_KEY` | - | Required if `LLM_PROVIDER=claude` |
-| `API_PORT` | `3000` | HTTP server port |
-| `USE_MOCK_RUNTIME` | `1` | Skip testnet connection (`1`=mock, `0`=real) |
-| `SHARD` | `9` | Delta shard ID |
-| `KEYPAIR_PATH` | `keypair_9.json` | Path to Delta keypair |
-| `RPC_URL` | `http://164.92.69.96:9000` | Delta testnet RPC |
-| `DELTA_GLOBAL_LAWS_PROGRAM` | - | Path to global laws ELF (for testnet builds) |
+```yaml
+shard: 9
+rpc_url: "http://164.92.69.96:9000"
+keypair_path: "keypair_9.json"
+api_port: 3335
+mock_mode: false
+llm_provider: "claude"  # or "gpt"
+```
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | Yes* | For Claude LLM quote compilation |
+| `OPENAI_API_KEY` | Yes* | For GPT LLM quote compilation |
+
+*One of these is required depending on `llm_provider` setting.
 
 ### Frontend Environment Variables
 
-| Variable | File | Description |
-|----------|------|-------------|
-| `NEXT_PUBLIC_API_URL` | `web/.env.local` | Backend URL (default: `http://localhost:3335`) |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8099` | RFQ Domain server URL |
+| `NEXT_PUBLIC_BACKEND_URL` | `http://localhost:8080` | Aomi Agent server URL |
+
+### CLI Arguments
+
+```bash
+cargo run -p rfq-domain -- [OPTIONS]
+
+Options:
+  -c, --config <PATH>   Config file path (default: domain.yaml)
+  -p, --port <PORT>     Override API port
+  --mock                Run in mock mode (no testnet connection)
+```
 
 ## How Local Laws Work
 
@@ -324,14 +342,19 @@ When wired to the Delta Runtime, these validations are enforced cryptographicall
 ### Quick Copy-Paste
 
 ```bash
+# One command - start everything
+export ANTHROPIC_API_KEY=your_key
+./start.sh --mock
+
+# Or manually:
 # Terminal 1: Backend
-LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain
+cd crates/domain && cargo run -- --mock --port 3335
 
 # Terminal 2: Frontend  
-cd web && npm run dev
+cd web && NEXT_PUBLIC_API_URL=http://localhost:3335 npm run dev
 
 # Terminal 3: Test API
-curl --noproxy '*' -X POST http://localhost:3335/quotes \
+curl -X POST http://localhost:3335/quotes \
   -H "Content-Type: application/json" \
   -d '{"text":"Buy 1 dETH max 2000 USDD, 5 min","maker_owner_id":"me","maker_shard":9}'
 ```
@@ -340,8 +363,10 @@ curl --noproxy '*' -X POST http://localhost:3335/quotes \
 
 | Command | Description |
 |---------|-------------|
-| `cargo run -p rfq-domain` | Run backend server |
-| `cargo run -p rfq-domain --features testnet` | Run with testnet/ZK support |
+| `./start.sh` | Start all services (FE + BE) |
+| `./start.sh --mock` | Start in mock mode (no testnet) |
+| `./start.sh --rfq-port 3335 --aomi-port 8080` | Custom ports |
+| `cargo run -p rfq-domain -- --mock` | Run backend only (mock) |
 | `cargo run -p rfq-domain --example local_laws_demo` | Run local laws demo |
 | `cargo test --workspace` | Run all tests |
 | `cargo test -p rfq-local-laws` | Test local laws |
@@ -373,11 +398,39 @@ curl -X POST http://localhost:3335/quotes/ID/fill -d '{"feed_evidence": [...]}'
 curl http://localhost:3335/quotes/ID/receipts
 ```
 
+## Delta SDK Integration
+
+The domain server integrates with Delta's Runtime SDK for ZK-proven settlement:
+
+```rust
+// Build runtime with mock proving client + local laws
+let runtime = Runtime::builder(shard, keypair)
+    .with_mock_rpc(HashMap::from([(vault_address, vault)]))
+    .with_proving_client(mock::Client::global_laws().with_local_laws::<RfqLocalLaws>())
+    .build()
+    .await?;
+
+// SDL submission flow
+runtime.apply(default_execute(verifiables)).await?;
+let sdl_hash = runtime.submit().await?;
+runtime.prove_with_local_laws_input(sdl_hash, input_bytes).await?;
+runtime.submit_proof(sdl_hash).await?;
+```
+
+### Testnet Credentials (Pre-configured)
+
+| Setting | Value |
+|---------|-------|
+| Shard | 9 |
+| RPC | `http://164.92.69.96:9000` |
+| Keypair | `keypair_9.json` (pre-funded) |
+
 ## License
 
 MIT
 
 ## References
 
-- [Delta Network Docs](https://docs.repyhlabs.dev/)
+- [Delta Network Docs](https://docs.delta.network/)
+- [Delta SDK Mocks](https://docs.delta.network/docs/build/mocks)
 - [RFC.md](./RFC.md) - Original specification
