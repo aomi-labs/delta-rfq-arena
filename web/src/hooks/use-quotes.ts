@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Quote, FillReceipt, CreateQuoteRequest, CreateQuoteResponse, FillRequest } from "@/types/api";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3335";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8099";
 
 export function useQuotes() {
   const [quotes, setQuotes] = useState<Quote[]>([]);

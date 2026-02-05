@@ -165,7 +165,7 @@ export function AomiFrameWrapper({
   width?: string;
 }) {
   return (
-    <AomiFrame.Root key={role} height={height} width={width} walletPosition="footer">
+    <AomiFrame.Root key={role} height={height} width={width}>
       <AomiFrame.Header />
       <AomiFrame.Composer withControl />
     </AomiFrame.Root>
