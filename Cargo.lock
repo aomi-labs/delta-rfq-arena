@@ -5417,6 +5417,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "thiserror 1.0.69",
  "tokio",
  "tower-http 0.5.2",

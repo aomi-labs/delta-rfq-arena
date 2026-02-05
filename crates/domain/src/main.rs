@@ -26,12 +26,15 @@ use axum::{
     Json, Router,
 };
 use clap::Parser;
-use delta_domain_sdk::base::vaults::{Address, Vault, WritableNativeBalance};
+use delta_domain_sdk::base::crypto::ed25519::PrivKey;
+use delta_domain_sdk::base::vaults::{Address, TokenKind, Vault, WritableNativeBalance};
 use delta_domain_sdk::proving::mock;
 use delta_domain_sdk::{execution::default_execute, Runtime};
+use delta_verifiable::types::debit_allowance::{AllowanceAmount, DebitAllowance, SignedDebitAllowance};
+use delta_verifiable::types::VerifiableType;
 use rfq_compiler::{Compiler, CompilerConfig};
 use rfq_models::*;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::num::NonZero;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -75,6 +78,8 @@ pub struct AppState {
     pub domain: Arc<DomainState>,
     /// Delta Runtime (for SDL submission and proving)
     pub runtime: Arc<RwLock<DeltaRuntime>>,
+    /// Domain operator keypair (for signing transfers)
+    pub keypair: Arc<PrivKey>,
     /// LLM compiler for quotes
     pub compiler: Compiler,
     /// Configuration
@@ -139,13 +144,14 @@ async fn main() -> Result<()> {
     });
 
     // Initialize Delta Runtime
-    let runtime = init_runtime(&config).await?;
+    let (runtime, keypair) = init_runtime(&config).await?;
     tracing::info!("Delta Runtime initialized (mock_mode={})", config.mock_mode);
 
     // Create application state
     let state = Arc::new(AppState {
         domain: DomainState::new(),
         runtime: Arc::new(RwLock::new(runtime)),
+        keypair: Arc::new(keypair),
         compiler,
         config: config.clone(),
     });
@@ -188,9 +194,8 @@ async fn main() -> Result<()> {
 }
 
 /// Initialize the Delta Runtime
-async fn init_runtime(config: &DomainConfig) -> Result<DeltaRuntime> {
-    use delta_domain_sdk::base::crypto::ed25519::PrivKey;
-
+/// Returns the runtime and the domain keypair
+async fn init_runtime(config: &DomainConfig) -> Result<(DeltaRuntime, PrivKey)> {
     let shard = NonZero::new(config.shard).context("Invalid shard (cannot be 0)")?;
 
     // Load or generate keypair
@@ -215,15 +220,18 @@ async fn init_runtime(config: &DomainConfig) -> Result<DeltaRuntime> {
     let proving_client = mock::Client::global_laws()
         .with_local_laws::<rfq_local_laws::RfqLocalLaws>();
 
+    // Clone keypair for return value (before it's moved into builder)
+    let keypair_clone = keypair.clone();
+
     // Build runtime
     let runtime = if config.mock_mode {
         // Mock mode: use mock RPC with pre-populated vaults
         let owner = keypair.pub_key().owner();
         let vault_address = Address::new(owner, shard.get());
         let mut vault = Vault::new(shard);
-        vault.set_balance(1_000_000_000); // 1B Plancks for testing
+        vault.set_balance(1_000_000_000_000_000); // 1 Quadrillion Plancks for testing (1M USDD equivalent)
 
-        tracing::info!("Mock mode: Pre-populated vault {} with 1B Plancks", vault_address);
+        tracing::info!("Mock mode: Pre-populated vault {} with 1Q Plancks", vault_address);
 
         Runtime::builder(shard, keypair)
             .with_mock_rpc(HashMap::from([(vault_address, vault)]))
@@ -251,7 +259,7 @@ async fn init_runtime(config: &DomainConfig) -> Result<DeltaRuntime> {
         }
     });
 
-    Ok(runtime)
+    Ok((runtime, keypair_clone))
 }
 
 // =============================================================================
@@ -431,8 +439,16 @@ async fn fill_quote(
             quote.status = QuoteStatus::Filled;
             state.domain.update_quote(quote.clone()).await;
 
-            // Submit SDL to Delta Runtime
-            let sdl_hash = submit_fill_to_delta(&state, &local_laws_input).await;
+            // Create fill context for transfer verifiables
+            let fill_ctx = FillContext {
+                maker_owner_id: quote.maker_owner_id.clone(),
+                taker_owner_id: request.taker_owner_id.clone(),
+                maker_pays: local_laws_input.fill_price,
+                taker_pays: local_laws_input.fill_size,
+            };
+
+            // Submit SDL to Delta Runtime with actual transfers
+            let sdl_hash = submit_fill_to_delta(&state, &local_laws_input, &fill_ctx).await;
 
             FillResult::Accepted {
                 fill_id: fill_attempt.id,
@@ -476,19 +492,129 @@ async fn fill_quote(
     Ok(Json(ApiFillResponse::from(&receipt)))
 }
 
+/// Context for submitting a fill to Delta
+struct FillContext {
+    /// Maker's owner ID (base58 or arbitrary string)
+    maker_owner_id: String,
+    /// Taker's owner ID (base58 or arbitrary string)
+    taker_owner_id: String,
+    /// Amount maker pays (in plancks) - the price * size
+    maker_pays: u64,
+    /// Amount taker pays (in plancks) - the asset size
+    taker_pays: u64,
+}
+
+/// Convert an owner ID string to an OwnerId
+/// 
+/// Tries to parse as base58 first. If that fails, derives a deterministic
+/// OwnerId by hashing the string (useful for demo/mock mode).
+fn parse_or_derive_owner_id(id_str: &str) -> delta_domain_sdk::base::crypto::OwnerId {
+    // Try base58 decode first
+    if let Ok(bytes) = bs58::decode(id_str).into_vec() {
+        if bytes.len() == 32 {
+            let arr: [u8; 32] = bytes.try_into().unwrap();
+            return delta_domain_sdk::base::crypto::OwnerId::from(arr);
+        }
+    }
+    
+    // Fallback: derive deterministic OwnerId from string via SHA256
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(id_str.as_bytes());
+    let hash: [u8; 32] = hasher.finalize().into();
+    
+    tracing::debug!("Derived owner ID for '{}': {}", id_str, bs58::encode(&hash).into_string());
+    delta_domain_sdk::base::crypto::OwnerId::from(hash)
+}
+
 /// Submit a fill to Delta Runtime for SDL creation and proof
+///
+/// This creates the actual transfer verifiables:
+/// 1. Maker sends currency to taker (fill_price)
+/// 2. Taker sends asset to maker (fill_size)
 async fn submit_fill_to_delta(
     state: &AppState,
-    input: &rfq_local_laws::RfqLocalLawsInput,
+    local_laws_input: &rfq_local_laws::RfqLocalLawsInput,
+    fill_ctx: &FillContext,
 ) -> String {
     use delta_serializers::bytes::BytesSerializer;
     use delta_serializers::serializer::Serializer;
 
     let runtime: tokio::sync::RwLockReadGuard<'_, DeltaRuntime> = state.runtime.read().await;
+    let shard = state.config.shard;
 
-    // For now, we submit an empty verifiables list since we're just testing the flow
-    // In production, this would include actual transfer verifiables
-    let verifiables = vec![];
+    // Parse or derive owner IDs
+    let maker_owner = parse_or_derive_owner_id(&fill_ctx.maker_owner_id);
+    let taker_owner = parse_or_derive_owner_id(&fill_ctx.taker_owner_id);
+    let domain_owner = state.keypair.pub_key().owner();
+
+    let maker_address = Address::new(maker_owner, shard);
+    let taker_address = Address::new(taker_owner, shard);
+    let domain_address = Address::new(domain_owner, shard);
+
+    // Get the next nonce for domain vault (both transfers debit from domain)
+    let base_nonce = match runtime.domain_view().next_nonce(&domain_owner) {
+        Ok(nonce) => nonce,
+        Err(e) => {
+            tracing::error!("Failed to get domain nonce: {}", e);
+            return format!("error_nonce_{}", uuid::Uuid::new_v4());
+        }
+    };
+
+    tracing::info!(
+        "Creating transfer verifiables: maker={} taker={} domain={} base_nonce={}",
+        maker_address, taker_address, domain_address, base_nonce
+    );
+
+    // Create the transfer verifiables for atomic DvP (Delivery vs Payment)
+    // For simplicity in this demo, the domain acts as intermediary:
+    // - Domain credits taker with maker's payment (currency)
+    // - Domain credits maker with taker's asset (simulated as native token)
+    //
+    // In a real implementation, you'd have proper asset tokens and direct transfers.
+
+    // Transfer 1: Domain -> Taker (the currency/payment from maker)
+    // Uses base_nonce for the first transfer
+    let domain_to_taker = DebitAllowance {
+        credited: taker_address,
+        allowances: BTreeMap::from([(
+            TokenKind::Native,
+            AllowanceAmount::Fungible(fill_ctx.maker_pays),
+        )]),
+        new_nonce: base_nonce,
+        debited_shard: shard,
+    };
+
+    let v1 = match SignedDebitAllowance::sign(domain_to_taker, state.keypair.as_ref()) {
+        Ok(signed) => VerifiableType::DebitAllowance(signed),
+        Err(e) => {
+            tracing::error!("Failed to sign domain->taker transfer: {}", e);
+            return format!("error_sign_{}", uuid::Uuid::new_v4());
+        }
+    };
+
+    // Transfer 2: Domain -> Maker (the asset from taker, simulated as native token)
+    // Uses base_nonce + 1 for the second transfer
+    let domain_to_maker = DebitAllowance {
+        credited: maker_address,
+        allowances: BTreeMap::from([(
+            TokenKind::Native,
+            AllowanceAmount::Fungible(fill_ctx.taker_pays),
+        )]),
+        new_nonce: base_nonce + 1,
+        debited_shard: shard,
+    };
+
+    let v2 = match SignedDebitAllowance::sign(domain_to_maker, state.keypair.as_ref()) {
+        Ok(signed) => VerifiableType::DebitAllowance(signed),
+        Err(e) => {
+            tracing::error!("Failed to sign domain->maker transfer: {}", e);
+            return format!("error_sign_{}", uuid::Uuid::new_v4());
+        }
+    };
+
+    let verifiables = vec![v1, v2];
+    tracing::info!("Created {} verifiables for fill", verifiables.len());
 
     // Apply verifiables (creates state diffs)
     if let Err(e) = runtime.apply(default_execute(verifiables)).await {
@@ -512,7 +638,7 @@ async fn submit_fill_to_delta(
     tracing::info!("SDL submitted: {:?}", sdl_hash);
 
     // Serialize local laws input for proof
-    let input_bytes = match BytesSerializer::serialize(input) {
+    let input_bytes = match BytesSerializer::serialize(local_laws_input) {
         Ok(bytes) => bytes,
         Err(e) => {
             tracing::error!("Failed to serialize local laws input: {}", e);
