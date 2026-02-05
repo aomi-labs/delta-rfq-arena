@@ -29,7 +29,7 @@ use clap::Parser;
 use delta_domain_sdk::base::crypto::ed25519::PrivKey;
 use delta_domain_sdk::base::vaults::{Address, TokenKind, Vault, WritableNativeBalance};
 use delta_domain_sdk::proving::mock;
-use delta_domain_sdk::{execution::default_execute, Runtime};
+use delta_domain_sdk::{execution::default_execute, Runtime, SdlState};
 use delta_verifiable::types::debit_allowance::{AllowanceAmount, DebitAllowance, SignedDebitAllowance};
 use delta_verifiable::types::VerifiableType;
 use rfq_compiler::{Compiler, CompilerConfig};
@@ -646,15 +646,61 @@ async fn submit_fill_to_delta(
         }
     };
 
-    // Generate proof with local laws input
+    // Subscribe to updates BEFORE starting prove (to not miss the Proven event)
+    let mut updates = runtime.updates();
+
+    // Start proof generation (async task)
     if let Err(e) = runtime.prove_with_local_laws_input(sdl_hash, input_bytes).await {
-        tracing::error!("Failed to prove: {}", e);
+        tracing::error!("Failed to start proving: {}", e);
         return format!("{:?}", sdl_hash);
     }
 
-    tracing::info!("Proof generated for SDL: {:?}", sdl_hash);
+    tracing::info!("Proving started for SDL: {:?}", sdl_hash);
 
-    // Submit proof to base layer
+    // Wait for proof to complete (SdlState::Proven)
+    let proof_timeout = tokio::time::Duration::from_secs(60);
+    let proven = tokio::time::timeout(proof_timeout, async {
+        loop {
+            match updates.recv().await {
+                Ok(update) => {
+                    if update.sdl_hash == sdl_hash {
+                        tracing::debug!("SDL update: {:?} -> {:?}", sdl_hash, update.new_state);
+                        match update.new_state {
+                            SdlState::Proven => {
+                                return Ok(());
+                            }
+                            SdlState::ProvingFailed(err) => {
+                                return Err(format!("Proving failed: {}", err));
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Updates channel error: {:?}", e);
+                    // Channel lagged, try again
+                    continue;
+                }
+            }
+        }
+    })
+    .await;
+
+    match proven {
+        Ok(Ok(())) => {
+            tracing::info!("Proof generated for SDL: {:?}", sdl_hash);
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Proving failed: {}", e);
+            return format!("{:?}", sdl_hash);
+        }
+        Err(_) => {
+            tracing::error!("Proof generation timed out for SDL: {:?}", sdl_hash);
+            return format!("{:?}", sdl_hash);
+        }
+    }
+
+    // NOW submit proof to base layer (proof is stored)
     if let Err(e) = runtime.submit_proof(sdl_hash).await {
         tracing::error!("Failed to submit proof: {}", e);
         return format!("{:?}", sdl_hash);
