@@ -5,7 +5,6 @@ members = [
     "crates/local-laws",
     "crates/models",
     "crates/feeds",
-    "crates/agents",
     "crates/compiler",
 ]
 

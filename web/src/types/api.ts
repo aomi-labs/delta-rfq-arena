@@ -97,12 +97,12 @@ export interface FillAttempt {
 }
 
 export interface FillReceipt {
-  id: string;
+  receipt_id: string;
   quote: Quote;
   constraints: QuoteConstraints;
   fill_attempt: FillAttempt;
   result: FillResult;
-  created_at: string;
+  generated_at: string;
 }
 
 export interface CreateQuoteRequest {

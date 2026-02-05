@@ -33,9 +33,7 @@ import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button
 
 import { cn, useNotification, useThreadContext } from "@aomi-labs/react";
 import { useComposerControl } from "@/components/aomi-frame";
-import { ModelSelect } from "@/components/control-bar/model-select";
-import { NamespaceSelect } from "@/components/control-bar/namespace-select";
-import { ApiKeyInput } from "@/components/control-bar/api-key-input";
+import { ControlBar } from "@/components/control-bar";
 import { useAssistantApi, useMessage } from "@assistant-ui/react";
 
 const seenSystemMessages = new Set<string>();
@@ -207,16 +205,14 @@ const Composer: FC = () => {
 };
 
 const ComposerAction: FC = () => {
-  const showInlineControls = useComposerControl();
+  const { enabled: showInlineControls, controlBarProps } = useComposerControl();
 
   return (
     <div className="aui-composer-action-wrapper relative mx-1 mb-2 mt-2 flex items-center">
-      {/* Inline controls: [Model ▾] [Agent ▾] [🔑] */}
+      {/* Inline controls: [Model ▾] [Agent ▾] [Wallet] [🔑] */}
       {showInlineControls && (
         <div className="ml-2 flex items-center gap-2">
-          <ModelSelect />
-          <NamespaceSelect />
-          <ApiKeyInput />
+          <ControlBar {...controlBarProps} />
         </div>
       )}
 

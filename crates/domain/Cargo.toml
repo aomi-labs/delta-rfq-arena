@@ -33,6 +33,8 @@ tower-http = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true, features = ["std"] }
 serde_json = { workspace = true }
+serde_yaml = "0.9"
+clap = { version = "4.4", features = ["derive"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 thiserror = { workspace = true }
@@ -40,3 +42,4 @@ anyhow = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true, features = ["std", "clock"] }
 bincode = "1.3"
+bs58 = "0.5"

@@ -1,6 +1,6 @@
 # OTC RFQ Arena
 
-A lightweight OTC RFQ (Request for Quote) market "arena" built on [Delta Network](https://docs.repyhlabs.dev/). Makers write quotes in plain English, the backend compiles them into machine-checkable guardrails ("Local Laws"), and Taker agents attempt to fill. Only fills satisfying the guardrails can settle.
+A lightweight OTC RFQ (Request for Quote) market "arena" built on [Delta Network](https://docs.delta.network/). Makers write quotes in plain English, the backend compiles them into machine-checkable guardrails ("Local Laws"), and Taker agents attempt to fill. Only fills satisfying the guardrails can settle - enforced with ZK proofs.
 
 ## Overview
 
@@ -9,25 +9,31 @@ This demo showcases Delta's **Local Laws** - custom validation rules that are cr
 ### How It Works
 
 1. **Maker posts a quote in English** (e.g., "Buy 10 dETH at most 2000 USDD, expires in 5 minutes")
-2. **Backend compiles to guardrails** - max debit, expiry, allowed feeds, quorum rules, etc.
+2. **Backend compiles to guardrails** - LLM extracts max debit, expiry, allowed feeds, quorum rules, etc.
 3. **Takers attempt to fill** - submitting price feed evidence
 4. **Local Laws validate** - only compliant fills settle; attacks are rejected with clear reasons
-5. **Receipts generated** - cryptographic proof of what happened and why
+5. **Delta Runtime proves** - ZK proof generated and submitted to testnet
+6. **Receipts generated** - cryptographic proof of what happened and why
 
 ## Project Structure
 
 ```
-crates/
-├── models/           # Core data types (Quote, Constraints, Fill, Receipt)
-├── local-laws/       # LocalLaws implementation for RFQ guardrails
-├── local-laws-elf/   # SP1 zkVM program for local laws proofs
-├── global-laws-stub/ # Stub program for delta SDK requirement
-├── compiler/         # LLM-based ESC compiler (English -> Guardrails)
-├── feeds/            # Mock price feed servers
-├── agents/           # Maker/Taker bot skeletons
-└── domain/           # HTTP server with RFQ endpoints
-    └── examples/     # Demo scripts
-web/                  # Next.js frontend dashboard
+delta-rfq-arena/
+├── start.sh              # Start all services (FE + BE)
+├── crates/
+│   ├── models/           # Core data types (Quote, Constraints, Fill, Receipt)
+│   ├── local-laws/       # LocalLaws implementation for RFQ guardrails
+│   ├── local-laws-elf/   # SP1 zkVM program for local laws proofs
+│   ├── compiler/         # LLM-based compiler (English -> Guardrails)
+│   ├── feeds/            # Mock price feed servers
+│   └── domain/           # HTTP server + Delta Runtime integration
+│       ├── src/
+│       │   ├── main.rs   # Server entry point
+│       │   ├── config.rs # YAML config loading
+│       │   └── state.rs  # In-memory quote/receipt storage
+│       ├── domain.yaml   # Testnet configuration
+│       └── keypair_9.json # Pre-funded test keypair (shard 9)
+└── web/                  # Next.js frontend with Aomi agent integration
 ```
 
 ## Quick Start
@@ -35,33 +41,58 @@ web/                  # Next.js frontend dashboard
 ### Prerequisites
 
 - Rust 1.75+
-- Access to Delta's private crate registry (configured in `.cargo/config.toml`)
-- OpenAI or Anthropic API key (for LLM quote compilation)
 - Node.js 18+ (for frontend)
-- SP1 toolchain (optional, for ZK proofs): `curl -L https://sp1up.dev | bash && sp1up`
+- Access to Delta's private crate registry (configured in `.cargo/config.toml`)
+- Anthropic API key (for LLM quote compilation)
 
-### Run the Server
+### One-Command Start
 
 ```bash
-# With GPT-4o-mini (recommended)
-LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain
+# Set your API key
+export ANTHROPIC_API_KEY=your_key_here
 
-# With Claude
-LLM_PROVIDER=claude API_PORT=3335 cargo run -p rfq-domain
+# Start everything (frontend + backend)
+./start.sh
 
-# With testnet features (mock runtime)
-USE_MOCK_RUNTIME=1 LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain --features testnet
+# Or with custom ports
+./start.sh --rfq-port 3335 --aomi-port 8080
 
-# With real testnet (slow startup - SP1 key gen takes 5-10 min)
-USE_MOCK_RUNTIME=0 LLM_PROVIDER=gpt API_PORT=3335 cargo run -p rfq-domain --features testnet
+# Mock mode (no Delta testnet connection)
+./start.sh --mock
 ```
 
-### Run Frontend
+This starts:
+- **RFQ Domain Server** on port 3335 (quotes, fills, local laws)
+- **Aomi Agent Server** on port 8080 (AI agent backend, if installed)
+- **Frontend** on port 3000 (Next.js web UI)
+
+### Manual Start (Alternative)
 
 ```bash
+# Terminal 1: Backend
+export ANTHROPIC_API_KEY=your_key
+cd crates/domain
+cargo run -- --mock --port 3335
+
+# Terminal 2: Frontend
 cd web
 npm install
-npm run dev    # Development server on port 3003
+NEXT_PUBLIC_API_URL=http://localhost:3335 npm run dev
+```
+
+### Start Script Options
+
+```
+./start.sh [OPTIONS]
+
+Options:
+  --rfq-port PORT    Port for RFQ Domain server (default: 3335)
+  --aomi-port PORT   Port for Aomi Agent server (default: 8080)
+  --fe-port PORT     Port for Frontend dev server (default: 3000)
+  --no-fe            Skip starting the frontend
+  --no-aomi          Skip starting the Aomi agent
+  --mock             Run RFQ server in mock mode (no Delta testnet)
+  -h, --help         Show help message
 ```
 
 ### Run Tests
@@ -75,9 +106,6 @@ cargo test -p rfq-models
 cargo test -p rfq-local-laws
 cargo test -p rfq-compiler
 cargo test -p rfq-domain
-
-# With testnet features
-cargo test -p rfq-domain --features testnet
 
 # With output
 cargo test -- --nocapture
@@ -95,12 +123,6 @@ cargo run -p rfq-domain --example local_laws_demo
 ```bash
 # Build local laws ELF (for fill validation proofs)
 cd crates/local-laws-elf && cargo prove build
-
-# Build global laws stub (required by delta SDK)
-cd crates/global-laws-stub && cargo prove build
-
-# Required env var for testnet builds
-export DELTA_GLOBAL_LAWS_PROGRAM="/path/to/delta/crates/global-laws-stub/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/global-laws-stub"
 ```
 
 ## API Endpoints

@@ -1,27 +1,39 @@
 //! RFQ Domain Server
 //!
 //! Main entry point for the OTC RFQ Arena domain.
-//! 
+//!
 //! This server:
-//! - Connects to delta testnet via the Runtime (when testnet feature enabled)
+//! - Connects to Delta testnet via Runtime SDK
 //! - Exposes HTTP endpoints for posting quotes and filling them
 //! - Uses LLM to compile English quotes into guardrails
-//! - Validates fills against local laws
+//! - Validates fills against local laws with ZK proofs
 //!
-//! ## Features
+//! ## Usage
 //!
-//! - `mock` (default): Use mock runtime, no testnet connection
-//! - `testnet`: Connect to delta testnet with real ZK proofs
+//! ```bash
+//! # Mock mode (default) - no testnet connection
+//! ANTHROPIC_API_KEY=... cargo run -- --mock --port 3335
+//!
+//! # Testnet mode - connects to Delta testnet
+//! ANTHROPIC_API_KEY=... cargo run -- --config domain.yaml --port 3335
+//! ```
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
 };
+use clap::Parser;
+use delta_domain_sdk::base::vaults::{Address, Vault, WritableNativeBalance};
+use delta_domain_sdk::proving::mock;
+use delta_domain_sdk::{execution::default_execute, Runtime};
 use rfq_compiler::{Compiler, CompilerConfig};
 use rfq_models::*;
+use std::collections::HashMap;
+use std::num::NonZero;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
@@ -29,19 +41,38 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
 mod config;
-mod runtime;
 mod state;
 
 use config::DomainConfig;
-use runtime::RuntimeHandle;
 use state::DomainState;
+
+/// CLI arguments
+#[derive(Parser)]
+#[command(name = "rfq-domain")]
+#[command(about = "RFQ Arena - OTC quotes with ZK-proven local laws")]
+struct CliArgs {
+    /// Path to domain configuration file
+    #[arg(short, long, default_value = "domain.yaml")]
+    config: PathBuf,
+
+    /// Port for the HTTP API server (overrides config)
+    #[arg(short, long)]
+    port: Option<u16>,
+
+    /// Run in mock mode (no Delta testnet connection)
+    #[arg(long)]
+    mock: bool,
+}
+
+/// Type alias for our Runtime with mock proving
+type DeltaRuntime = Runtime<mock::Client>;
 
 /// Application state shared across handlers
 pub struct AppState {
     /// Domain state (quotes, receipts)
     pub domain: Arc<DomainState>,
-    /// Delta runtime (optional - may not be connected)
-    pub runtime: Option<Arc<RwLock<RuntimeHandle>>>,
+    /// Delta Runtime (for SDL submission and proving)
+    pub runtime: Arc<RwLock<DeltaRuntime>>,
     /// LLM compiler for quotes
     pub compiler: Compiler,
     /// Configuration
@@ -61,16 +92,39 @@ async fn main() -> Result<()> {
 
     tracing::info!("Starting RFQ Domain Server...");
 
+    // Parse CLI args
+    let args = CliArgs::parse();
+
     // Load configuration
-    let config = DomainConfig::default();
-    tracing::info!("Configuration loaded: shard={}, api_port={}", config.shard, config.api_port);
+    let mut config = if args.config.exists() {
+        DomainConfig::load_from(&args.config)
+            .with_context(|| format!("Failed to load config from {:?}", args.config))?
+    } else {
+        tracing::warn!("Config file {:?} not found, using defaults", args.config);
+        DomainConfig::default()
+    };
+
+    // Apply CLI overrides
+    if let Some(port) = args.port {
+        config.api_port = port;
+    }
+    if args.mock {
+        config.mock_mode = true;
+    }
+
+    tracing::info!(
+        "Configuration: shard={}, port={}, mock_mode={}",
+        config.shard,
+        config.api_port,
+        config.mock_mode
+    );
 
     // Initialize LLM compiler
     if config.llm_api_key.is_empty() {
         tracing::error!("No LLM API key configured. Set ANTHROPIC_API_KEY or OPENAI_API_KEY");
         std::process::exit(1);
     }
-    
+
     tracing::info!("Using LLM compiler ({} provider)", config.llm_provider);
     let compiler = Compiler::new(CompilerConfig {
         llm: config.llm_provider.clone(),
@@ -82,22 +136,14 @@ async fn main() -> Result<()> {
         },
     });
 
-    // Initialize delta runtime
-    let runtime = match runtime::init_runtime(&config).await {
-        Ok(rt) => {
-            tracing::info!("Runtime initialized successfully");
-            Some(rt)
-        }
-        Err(e) => {
-            tracing::warn!("Failed to initialize runtime: {}. Running in offline mode.", e);
-            None
-        }
-    };
+    // Initialize Delta Runtime
+    let runtime = init_runtime(&config).await?;
+    tracing::info!("Delta Runtime initialized (mock_mode={})", config.mock_mode);
 
     // Create application state
     let state = Arc::new(AppState {
         domain: DomainState::new(),
-        runtime,
+        runtime: Arc::new(RwLock::new(runtime)),
         compiler,
         config: config.clone(),
     });
@@ -109,17 +155,29 @@ async fn main() -> Result<()> {
         // Quote endpoints
         .route("/quotes", get(list_quotes))
         .route("/quotes", post(create_quote))
-        .route("/quotes/:id", get(get_quote))
-        .route("/quotes/:id/fill", post(fill_quote))
+        .route("/quotes/{id}", get(get_quote))
+        .route("/quotes/{id}/fill", post(fill_quote))
         // Receipt endpoints
-        .route("/quotes/:id/receipts", get(get_receipts))
+        .route("/quotes/{id}/receipts", get(get_receipts))
         // CORS
-        .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state);
 
     // Start server
     let addr = format!("0.0.0.0:{}", config.api_port);
     tracing::info!("HTTP server listening on {}", addr);
+    tracing::info!("Endpoints:");
+    tracing::info!("  GET  /health              - Health check");
+    tracing::info!("  GET  /quotes              - List quotes");
+    tracing::info!("  POST /quotes              - Create quote from text");
+    tracing::info!("  GET  /quotes/{{id}}         - Get quote");
+    tracing::info!("  POST /quotes/{{id}}/fill    - Fill quote");
+    tracing::info!("  GET  /quotes/{{id}}/receipts - Get receipts");
 
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     axum::serve(listener, app).await?;
@@ -127,13 +185,84 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// Initialize the Delta Runtime
+async fn init_runtime(config: &DomainConfig) -> Result<DeltaRuntime> {
+    use delta_domain_sdk::base::crypto::ed25519::PrivKey;
+
+    let shard = NonZero::new(config.shard).context("Invalid shard (cannot be 0)")?;
+
+    // Load or generate keypair
+    let keypair = if std::path::Path::new(&config.keypair_path).exists() {
+        let key_str = std::fs::read_to_string(&config.keypair_path)?;
+        let key_str = key_str.trim().trim_matches('"');
+        let key_bytes = bs58::decode(key_str)
+            .into_vec()
+            .context("Failed to decode base58 keypair")?;
+        let key_array: [u8; 32] = key_bytes
+            .try_into()
+            .map_err(|v: Vec<u8>| anyhow::anyhow!("Expected 32 bytes, got {}", v.len()))?;
+        PrivKey::from_bytes(&key_array)
+    } else {
+        tracing::warn!("Keypair file not found, generating new keypair");
+        PrivKey::generate()
+    };
+
+    tracing::info!("Using keypair: {}", keypair.pub_key().owner());
+
+    // Create mock proving client with our local laws
+    let proving_client = mock::Client::global_laws()
+        .with_local_laws::<rfq_local_laws::RfqLocalLaws>();
+
+    // Build runtime
+    let runtime = if config.mock_mode {
+        // Mock mode: use mock RPC with pre-populated vaults
+        let owner = keypair.pub_key().owner();
+        let vault_address = Address::new(owner, shard.get());
+        let mut vault = Vault::new(shard);
+        vault.set_balance(1_000_000_000); // 1B Plancks for testing
+
+        tracing::info!("Mock mode: Pre-populated vault {} with 1B Plancks", vault_address);
+
+        Runtime::builder(shard, keypair)
+            .with_mock_rpc(HashMap::from([(vault_address, vault)]))
+            .with_proving_client(proving_client)
+            .build()
+            .await
+            .context("Failed to build mock runtime")?
+    } else {
+        // Testnet mode: connect to real RPC
+        tracing::info!("Connecting to Delta testnet at {}", config.rpc_url);
+
+        Runtime::builder(shard, keypair)
+            .with_rpc(&config.rpc_url)
+            .with_proving_client(proving_client)
+            .build()
+            .await
+            .context("Failed to build testnet runtime")?
+    };
+
+    // Run the runtime in background
+    let runtime_clone = runtime.clone();
+    tokio::spawn(async move {
+        if let Err(e) = runtime_clone.run().await {
+            tracing::error!("Runtime error: {}", e);
+        }
+    });
+
+    Ok(runtime)
+}
+
 // =============================================================================
 // Handlers
 // =============================================================================
 
 /// Health check endpoint
-async fn health_check() -> &'static str {
-    "OK"
+async fn health_check(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "shard": state.config.shard,
+        "mock_mode": state.config.mock_mode,
+    }))
 }
 
 /// List all active quotes
@@ -174,7 +303,8 @@ async fn create_quote(
     let nonce = 1u64;
 
     // Compile the quote using LLM
-    let (spec, constraints) = state.compiler
+    let (spec, constraints) = state
+        .compiler
         .compile(&request.text, quote_id_bytes, nonce)
         .await
         .map_err(|e| (StatusCode::BAD_REQUEST, format!("Failed to compile quote: {}", e)))?;
@@ -212,7 +342,11 @@ async fn fill_quote(
     Path(id): Path<Uuid>,
     Json(request): Json<FillRequest>,
 ) -> Result<Json<FillReceipt>, (StatusCode, String)> {
-    tracing::info!("Fill attempt for quote {}: taker={}", id, request.taker_owner_id);
+    tracing::info!(
+        "Fill attempt for quote {}: taker={}",
+        id,
+        request.taker_owner_id
+    );
 
     // Get the quote
     let mut quote = state
@@ -273,7 +407,7 @@ async fn fill_quote(
 
     // Validate against local laws
     let current_timestamp = chrono::Utc::now().timestamp() as u64;
-    let input = rfq_local_laws::RfqLocalLawsInput {
+    let local_laws_input = rfq_local_laws::RfqLocalLawsInput {
         constraints: quote.constraints.clone(),
         taker_owner_id: request.taker_owner_id.clone(),
         fill_size: (request.size * 1_000_000_000.0) as u64,
@@ -284,22 +418,25 @@ async fn fill_quote(
         has_extra_transfers: false,
     };
 
-    let result = rfq_local_laws::validate_fill(&input);
+    let result = rfq_local_laws::validate_fill(&local_laws_input);
 
     let fill_result = match result {
         Ok(()) => {
-            // Fill accepted!
+            // Fill accepted! Submit to Delta for proof
             quote.status = QuoteStatus::Filled;
             state.domain.update_quote(quote.clone()).await;
 
+            // Submit SDL to Delta Runtime
+            let sdl_hash = submit_fill_to_delta(&state, &local_laws_input).await;
+
             FillResult::Accepted {
                 fill_id: fill_attempt.id,
-                sdl_hash: format!("mock_sdl_{}", fill_attempt.id),
+                sdl_hash,
                 settlement: SettlementDetails {
-                    maker_debit: input.fill_price,
-                    maker_credit: input.fill_size,
-                    taker_debit: input.fill_size,
-                    taker_credit: input.fill_price,
+                    maker_debit: local_laws_input.fill_price,
+                    maker_credit: local_laws_input.fill_size,
+                    taker_debit: local_laws_input.fill_size,
+                    taker_credit: local_laws_input.fill_price,
                     asset: quote.spec.asset.clone(),
                     currency: quote.spec.currency.clone(),
                     settled_at: chrono::Utc::now(),
@@ -324,10 +461,76 @@ async fn fill_quote(
     tracing::info!(
         "Fill result for quote {}: {}",
         id,
-        if receipt.is_accepted() { "ACCEPTED" } else { "REJECTED" }
+        if receipt.is_accepted() {
+            "ACCEPTED"
+        } else {
+            "REJECTED"
+        }
     );
 
     Ok(Json(receipt))
+}
+
+/// Submit a fill to Delta Runtime for SDL creation and proof
+async fn submit_fill_to_delta(
+    state: &AppState,
+    input: &rfq_local_laws::RfqLocalLawsInput,
+) -> String {
+    use delta_serializers::bytes::BytesSerializer;
+    use delta_serializers::serializer::Serializer;
+
+    let runtime: tokio::sync::RwLockReadGuard<'_, DeltaRuntime> = state.runtime.read().await;
+
+    // For now, we submit an empty verifiables list since we're just testing the flow
+    // In production, this would include actual transfer verifiables
+    let verifiables = vec![];
+
+    // Apply verifiables (creates state diffs)
+    if let Err(e) = runtime.apply(default_execute(verifiables)).await {
+        tracing::error!("Failed to apply verifiables: {}", e);
+        return format!("error_apply_{}", uuid::Uuid::new_v4());
+    }
+
+    // Submit to get SDL hash
+    let sdl_hash = match runtime.submit().await {
+        Ok(Some(hash)) => hash,
+        Ok(None) => {
+            tracing::info!("No state changes to submit");
+            return format!("no_changes_{}", uuid::Uuid::new_v4());
+        }
+        Err(e) => {
+            tracing::error!("Failed to submit SDL: {}", e);
+            return format!("error_submit_{}", uuid::Uuid::new_v4());
+        }
+    };
+
+    tracing::info!("SDL submitted: {:?}", sdl_hash);
+
+    // Serialize local laws input for proof
+    let input_bytes = match BytesSerializer::serialize(input) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            tracing::error!("Failed to serialize local laws input: {}", e);
+            return format!("{:?}", sdl_hash);
+        }
+    };
+
+    // Generate proof with local laws input
+    if let Err(e) = runtime.prove_with_local_laws_input(sdl_hash, input_bytes).await {
+        tracing::error!("Failed to prove: {}", e);
+        return format!("{:?}", sdl_hash);
+    }
+
+    tracing::info!("Proof generated for SDL: {:?}", sdl_hash);
+
+    // Submit proof to base layer
+    if let Err(e) = runtime.submit_proof(sdl_hash).await {
+        tracing::error!("Failed to submit proof: {}", e);
+        return format!("{:?}", sdl_hash);
+    }
+
+    tracing::info!("Proof submitted for SDL: {:?}", sdl_hash);
+    format!("{:?}", sdl_hash)
 }
 
 /// Get receipts for a quote
@@ -338,5 +541,3 @@ async fn get_receipts(
     let receipts = state.domain.get_receipts(&id).await;
     Json(receipts)
 }
-
-

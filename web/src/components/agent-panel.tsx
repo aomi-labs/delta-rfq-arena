@@ -165,9 +165,19 @@ export function AomiFrameWrapper({
   width?: string;
 }) {
   return (
-    <AomiFrame.Root key={role} height={height} width={width}>
+    <AomiFrame.Root
+      key={role}
+      height={height}
+      width={width}
+      hideSidebar
+      walletPosition={null}
+      className="max-h-full rounded-2xl"
+    >
       <AomiFrame.Header />
-      <AomiFrame.Composer withControl />
+      <AomiFrame.Composer
+        withControl
+        controlBarProps={{ hideWallet: false }}
+      />
     </AomiFrame.Root>
   );
 }

@@ -61,31 +61,31 @@ export default function Home() {
               Chat with AI agents to create and fill quotes
             </p>
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[600px]">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[800px]">
             {/* Maker Panel */}
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-col min-h-0">
+              <div className="flex items-center gap-2 mb-2 shrink-0">
                 <div className="w-3 h-3 rounded-full bg-green-500" />
                 <span className="text-sm font-medium">Maker Agent</span>
                 <span className="text-xs text-muted-foreground">
                   Create quotes in plain English
                 </span>
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border shadow-lg">
                 <AomiFrameWrapper role="maker" />
               </div>
             </div>
 
             {/* Taker Panel */}
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="flex flex-col min-h-0">
+              <div className="flex items-center gap-2 mb-2 shrink-0">
                 <div className="w-3 h-3 rounded-full bg-blue-500" />
                 <span className="text-sm font-medium">Taker Agent</span>
                 <span className="text-xs text-muted-foreground">
                   Find and fill quotes
                 </span>
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-h-0 overflow-hidden rounded-2xl border shadow-lg">
                 <AomiFrameWrapper role="taker" />
               </div>
             </div>

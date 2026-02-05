@@ -161,7 +161,7 @@ export function QuoteDetailDialog({
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {receipts.map((receipt) => (
                   <div
-                    key={receipt.id}
+                    key={receipt.receipt_id}
                     className={`p-3 rounded-lg border ${
                       receipt.result.status === "accepted"
                         ? "border-green-500/50 bg-green-500/10"
