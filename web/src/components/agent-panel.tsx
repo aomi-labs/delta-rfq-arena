@@ -169,7 +169,6 @@ export function AomiFrameWrapper({
       key={role}
       height={height}
       width={width}
-      hideSidebar
       walletPosition={null}
       className="max-h-full rounded-2xl"
     >

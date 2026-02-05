@@ -2,5 +2,6 @@
 # Shard 9 - RFQ Arena
 
 shard: 9
-keypair: ./keypair_9.json
+keypair_path: ./keypair_9.json
 rpc_url: http://164.92.69.96:9000
+mock_mode: false

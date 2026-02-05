@@ -36,10 +36,8 @@ type ComposerControlContextValue = {
 const ComposerControlContext = createContext<ComposerControlContextValue>({
   enabled: false,
 });
-const HideSidebarContext = createContext<boolean>(false);
 
 export const useComposerControl = () => useContext(ComposerControlContext);
-const useHideSidebar = () => useContext(HideSidebarContext);
 
 // =============================================================================
 // Types
@@ -55,8 +53,6 @@ type RootProps = {
   walletPosition?: "header" | "footer" | null;
   /** Backend URL for the Aomi runtime */
   backendUrl?: string;
-  /** Hide the thread list sidebar */
-  hideSidebar?: boolean;
 };
 
 type HeaderProps = {
@@ -94,7 +90,6 @@ const Root: FC<RootProps> = ({
   style,
   walletPosition = "footer",
   backendUrl,
-  hideSidebar = false,
 }) => {
   const resolvedBackendUrl =
     backendUrl ??
@@ -104,7 +99,6 @@ const Root: FC<RootProps> = ({
 
   return (
     <AomiRuntimeProvider backendUrl={resolvedBackendUrl}>
-      <HideSidebarContext.Provider value={hideSidebar}>
         <SidebarProvider className="min-h-0 h-full">
           <div
             className={cn(
@@ -113,14 +107,12 @@ const Root: FC<RootProps> = ({
             )}
             style={frameStyle}
           >
-            {!hideSidebar && <ThreadListSidebar walletPosition={walletPosition} />}
-            <SidebarInset className={cn("relative flex flex-col min-h-0", hideSidebar && "w-full")}>
+            <SidebarInset className={cn("relative flex flex-col min-h-0 w-full")}>
               {children}
             </SidebarInset>
             <NotificationToaster />
           </div>
         </SidebarProvider>
-      </HideSidebarContext.Provider>
     </AomiRuntimeProvider>
   );
 };
@@ -135,7 +127,6 @@ const Header: FC<HeaderProps> = ({
   className,
 }) => {
   const { currentThreadId, getThreadMetadata } = useAomiRuntime();
-  const hideSidebar = useHideSidebar();
   const currentTitle = getThreadMetadata(currentThreadId)?.title ?? "New Chat";
 
   return (
@@ -145,12 +136,6 @@ const Header: FC<HeaderProps> = ({
         className,
       )}
     >
-      {!hideSidebar && (
-        <>
-          <SidebarTrigger />
-          <Separator orientation="vertical" className="mr-2 h-4" />
-        </>
-      )}
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem className="hidden md:block">
