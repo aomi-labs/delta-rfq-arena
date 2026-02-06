@@ -27,6 +27,7 @@ NC='\033[0m' # No Color
 # Default ports
 RFQ_PORT=3335
 AOMI_PORT=8080
+AOMI_URL=""  # Override for remote Aomi (e.g., https://api.staging.aomi.dev)
 FE_PORT=3000
 
 # Script directory
@@ -46,6 +47,7 @@ usage() {
     echo "Options:"
     echo "  --rfq-port PORT    Port for RFQ Domain server (default: $RFQ_PORT)"
     echo "  --aomi-port PORT   Port for Aomi Agent server (default: $AOMI_PORT)"
+    echo "  --aomi-url URL     Full URL for remote Aomi (e.g., https://api.staging.aomi.dev)"
     echo "  --fe-port PORT     Port for Frontend dev server (default: $FE_PORT)"
     echo "  --no-fe            Skip starting the frontend"
     echo "  --no-aomi          Skip starting the Aomi agent (if not available)"
@@ -141,6 +143,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --aomi-port)
             AOMI_PORT="$2"
+            shift 2
+            ;;
+        --aomi-url)
+            AOMI_URL="$2"
             shift 2
             ;;
         --fe-port)
@@ -256,7 +262,11 @@ if [ "$SKIP_FE" = false ]; then
     
     # Set environment variables for the frontend
     export NEXT_PUBLIC_API_URL="http://localhost:$RFQ_PORT"
-    export NEXT_PUBLIC_BACKEND_URL="http://localhost:$AOMI_PORT"
+    if [ -n "$AOMI_URL" ]; then
+        export NEXT_PUBLIC_BACKEND_URL="$AOMI_URL"
+    else
+        export NEXT_PUBLIC_BACKEND_URL="http://localhost:$AOMI_PORT"
+    fi
     
     npm run dev -- -p "$FE_PORT" > /tmp/frontend.log 2>&1 &
     FE_PID=$!
@@ -285,7 +295,11 @@ echo "    - Quotes:         http://localhost:$RFQ_PORT/quotes"
 echo ""
 
 if [ "$SKIP_AOMI" = false ]; then
-    echo "  Aomi Agent:         http://localhost:$AOMI_PORT (external)"
+    if [ -n "$AOMI_URL" ]; then
+        echo "  Aomi Agent:         $AOMI_URL (remote)"
+    else
+        echo "  Aomi Agent:         http://localhost:$AOMI_PORT (external)"
+    fi
     echo ""
 fi
 
