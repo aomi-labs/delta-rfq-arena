@@ -275,9 +275,19 @@ async fn health_check(State(state): State<Arc<AppState>>) -> Json<serde_json::Va
     }))
 }
 
-/// List all active quotes
+/// List all quotes (including filled and expired)
 async fn list_quotes(State(state): State<Arc<AppState>>) -> Json<Vec<ApiQuote>> {
-    let quotes = state.domain.get_active_quotes().await;
+    let mut quotes = state.domain.get_all_quotes().await;
+    
+    // Update status for expired quotes
+    for quote in &mut quotes {
+        if quote.status == QuoteStatus::Active && quote.is_expired() {
+            quote.status = QuoteStatus::Expired;
+            // Persist the updated status
+            state.domain.update_quote(quote.clone()).await;
+        }
+    }
+    
     let api_quotes: Vec<ApiQuote> = quotes.iter().map(ApiQuote::from).collect();
     Json(api_quotes)
 }

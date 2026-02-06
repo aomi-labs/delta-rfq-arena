@@ -37,6 +37,12 @@ impl DomainState {
         quotes.values().filter(|q| q.is_active()).cloned().collect()
     }
 
+    /// Get all quotes (including filled and expired)
+    pub async fn get_all_quotes(&self) -> Vec<Quote> {
+        let quotes = self.quotes.read().await;
+        quotes.values().cloned().collect()
+    }
+
     /// Update a quote
     pub async fn update_quote(&self, quote: Quote) {
         let mut quotes = self.quotes.write().await;
