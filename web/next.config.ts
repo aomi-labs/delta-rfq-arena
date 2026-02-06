@@ -1,17 +1,9 @@
 import type { NextConfig } from "next";
 import { fileURLToPath } from "url";
-import { dirname, resolve } from "path";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const emptyModulePath = resolve(__dirname, "empty-module.cjs");
+const emptyModulePath = fileURLToPath(new URL("./empty-module.mjs", import.meta.url));
 
 const nextConfig: NextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
   typescript: {
     ignoreBuildErrors: true,
   },
@@ -27,15 +19,11 @@ const nextConfig: NextConfig = {
     "@reown/appkit-adapter-wagmi",
   ],
 
-  webpack: (config) => {
-    config.resolve = config.resolve ?? {};
-    config.resolve.alias = {
-      ...(config.resolve.alias ?? {}),
-      "pino-pretty": false,
+  turbopack: {
+    resolveAlias: {
+      "pino-pretty": { browser: "./empty-module.mjs" },
       porto: emptyModulePath,
-    };
-
-    return config;
+    },
   },
 };
 
