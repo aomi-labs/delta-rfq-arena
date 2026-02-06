@@ -312,23 +312,35 @@ pub struct ApiReceiptSummary {
     /// SDL hash if accepted
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sdl_hash: Option<String>,
+    /// Settlement details if accepted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settlement: Option<ApiSettlement>,
 }
 
 impl From<&FillReceipt> for ApiReceiptSummary {
     fn from(r: &FillReceipt) -> Self {
-        let (success, status, error_code, error_message, sdl_hash) = match &r.result {
-            FillResult::Accepted { sdl_hash, .. } => (
+        let (success, status, error_code, error_message, sdl_hash, settlement) = match &r.result {
+            FillResult::Accepted { sdl_hash, settlement, .. } => (
                 true,
                 "accepted".to_string(),
                 None,
                 None,
                 Some(sdl_hash.clone()),
+                Some(ApiSettlement {
+                    maker_debit: settlement.maker_debit,
+                    maker_credit: settlement.maker_credit,
+                    taker_debit: settlement.taker_debit,
+                    taker_credit: settlement.taker_credit,
+                    asset: settlement.asset.clone(),
+                    currency: settlement.currency.clone(),
+                }),
             ),
             FillResult::Rejected { reason, .. } => (
                 false,
                 "rejected".to_string(),
                 Some(reason.code().to_string()),
                 Some(reason.message()),
+                None,
                 None,
             ),
         };
@@ -346,6 +358,7 @@ impl From<&FillReceipt> for ApiReceiptSummary {
             error_code,
             error_message,
             sdl_hash,
+            settlement,
         }
     }
 }

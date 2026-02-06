@@ -194,9 +194,34 @@ export function QuoteDetailDialog({
                         Reason: {receipt.rejection_reason}
                       </div>
                     )}
-                    {receipt.status === "accepted" && receipt.sdl_hash && (
-                      <div className="mt-2 text-xs text-green-600">
-                        SDL: {receipt.sdl_hash.slice(0, 16)}...
+                    {receipt.status === "accepted" && (
+                      <div className="mt-3 p-2 bg-green-500/10 rounded text-xs space-y-1">
+                        {receipt.sdl_hash && (
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">ZK Proof (SDL):</span>
+                            <span className="font-mono text-green-600">{receipt.sdl_hash.slice(0, 20)}...</span>
+                          </div>
+                        )}
+                        {receipt.settlement && (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Maker Debit:</span>
+                              <span className="font-mono">{formatUnits(receipt.settlement.maker_debit)} {receipt.settlement.asset}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Maker Credit:</span>
+                              <span className="font-mono">{formatUnits(receipt.settlement.maker_credit)} {receipt.settlement.currency}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Taker Debit:</span>
+                              <span className="font-mono">{formatUnits(receipt.settlement.taker_debit)} {receipt.settlement.currency}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Taker Credit:</span>
+                              <span className="font-mono">{formatUnits(receipt.settlement.taker_credit)} {receipt.settlement.asset}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

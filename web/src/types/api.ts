@@ -115,4 +115,7 @@ export interface FillReceipt {
   attempted_at: number; // Unix timestamp
   sdl_hash?: string;
   rejection_reason?: string;
+  error_code?: string;
+  error_message?: string;
+  settlement?: Settlement;
 }
