@@ -5,7 +5,7 @@ import { dirname, resolve } from "path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const emptyModulePath = resolve(__dirname, "empty-module.js");
+const emptyModulePath = resolve(__dirname, "empty-module.cjs");
 
 const nextConfig: NextConfig = {
   eslint: {
